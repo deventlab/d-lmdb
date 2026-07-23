@@ -1,0 +1,22 @@
+d-lmdb includes or depends on the following third-party software.
+
+-------------------------------------------------------------------------------
+d-engine
+-------------------------------------------------------------------------------
+Copyright (c) DEventLab contributors
+Licensed under the Apache License, Version 2.0 and the MIT License.
+https://github.com/DEventLab/d-engine
+
+-------------------------------------------------------------------------------
+LMDB (Lightning Memory-Mapped Database)
+-------------------------------------------------------------------------------
+Copyright 2011-2024 Howard Chu, Symas Corp.
+Licensed under the OpenLDAP Public License.
+https://www.symas.com/lmdb
+
+-------------------------------------------------------------------------------
+heed (Rust bindings for LMDB)
+-------------------------------------------------------------------------------
+Copyright (c) Clément Renault and contributors
+Licensed under the MIT License.
+https://github.com/meilisearch/heed
