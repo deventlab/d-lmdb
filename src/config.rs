@@ -8,21 +8,25 @@ use serde::Deserialize;
 use crate::Error;
 use crate::Result;
 
+/// Configuration for a `DLmdb` node: data location, LMDB map size, and key/value size limits.
 #[derive(Deserialize)]
-pub struct DLmdbConfig {
+pub(crate) struct DLmdbConfig {
     /// Root directory for all persisted data (Raft WAL + LMDB state machine)
-    pub data_dir: PathBuf,
+    pub(crate) data_dir: PathBuf,
     /// LMDB memory-map size in bytes. Must be larger than the total dataset.
     /// Default: 10 GiB — adjust for your expected data volume.
     #[serde(default = "default_map_size_gb")]
-    pub map_size_gb: usize,
+    pub(crate) map_size_gb: usize,
 
-    pub max_key_bytes: usize,   // default 512
-    pub max_value_bytes: usize, // default 1MB
+    /// Maximum accepted key size in bytes. Default: 512.
+    pub(crate) max_key_bytes: usize,
+    /// Maximum accepted value size in bytes. Default: 1MB.
+    pub(crate) max_value_bytes: usize,
 }
 
 impl DLmdbConfig {
-    pub fn new(data_path: impl AsRef<Path>) -> Self {
+    /// Build a config with default map size and key/value limits, rooted at `data_path`.
+    pub(crate) fn new(data_path: impl AsRef<Path>) -> Self {
         Self {
             data_dir: data_path.as_ref().to_path_buf(),
             map_size_gb: 10 * 1024 * 1024 * 1024, //10 GiB
@@ -31,7 +35,8 @@ impl DLmdbConfig {
         }
     }
 
-    pub fn from_file(path: impl AsRef<Path>) -> Result<Self> {
+    /// Load a config from a TOML/YAML/JSON file (see [`config`] crate for supported formats).
+    pub(crate) fn from_file(path: impl AsRef<Path>) -> Result<Self> {
         let path_str = path
             .as_ref()
             .to_str()

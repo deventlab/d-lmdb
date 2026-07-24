@@ -36,7 +36,7 @@ const META_LAST_APPLIED_INDEX: &str = "last_applied_index";
 const META_LAST_APPLIED_TERM: &str = "last_applied_term";
 
 #[derive(Debug)]
-pub struct LmdbStateMachine {
+pub(crate) struct LmdbStateMachine {
     env: Env,
     kv_db: Database<LmdbBytes, LmdbBytes>,
     meta_db: Database<heed::types::Str, LmdbBytes>,
@@ -55,7 +55,7 @@ pub struct LmdbStateMachine {
 }
 
 impl LmdbStateMachine {
-    pub async fn new(
+    pub(crate) async fn new(
         data_dir: PathBuf,
         config: &DLmdbConfig,
     ) -> crate::Result<Self> {
@@ -255,7 +255,7 @@ impl LmdbStateMachine {
     }
 
     /// Scan keys in `[start, end)`, returning at most `limit` entries.
-    pub fn scan_range<F>(
+    pub(crate) fn scan_range<F>(
         &self,
         start: &[u8],
         end: Option<&[u8]>,
@@ -273,7 +273,7 @@ impl LmdbStateMachine {
     }
 
     /// Scan all keys, returning at most `limit` entries.
-    pub fn scan_all<F>(
+    pub(crate) fn scan_all<F>(
         &self,
         limit: Option<usize>,
         filter: Option<F>,
@@ -285,7 +285,7 @@ impl LmdbStateMachine {
     }
 
     /// Scan keys sharing `prefix`, optionally starting after `after` (exclusive) for pagination.
-    pub fn scan_prefix_bounded<F>(
+    pub(crate) fn scan_prefix_bounded<F>(
         &self,
         prefix: &[u8],
         after: Option<&[u8]>,
@@ -311,7 +311,7 @@ impl LmdbStateMachine {
     ///
     /// Scans forward with a sliding window of size `limit`, so memory usage is
     /// O(limit), not O(range size). Full range is always traversed on disk.
-    pub fn scan_range_rev<F>(
+    pub(crate) fn scan_range_rev<F>(
         &self,
         start: &[u8],
         end: &[u8],

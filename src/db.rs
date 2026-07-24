@@ -28,7 +28,7 @@ type Inner = EmbeddedEngine<LmdbStorageEngine, LmdbStateMachine>;
 /// to the local LMDB instance. No external servers, no sidecars.
 ///
 /// ```rust,ignore
-/// let db = DLmdb::open(DLmdbConfig::new("./data")).await?;
+/// let db = DLmdb::open("./data").await?;
 /// db.wait_ready(Duration::from_secs(5)).await?;
 ///
 /// db.put(b"user:1", b"alice").await?;
@@ -268,6 +268,8 @@ impl DLmdb {
         Ok(())
     }
 
+    /// Write `key`/`value` with an expiry. The key is physically removed once
+    /// `ttl_secs` have elapsed, on the next read/scan that observes it.
     pub async fn put_with_ttl(
         &self,
         key: impl AsRef<[u8]>,
@@ -285,6 +287,7 @@ impl DLmdb {
         Ok(())
     }
 
+    /// Apply a batch of inserts/deletes atomically through Raft.
     pub async fn batch(
         &self,
         ops: Vec<BatchOp>,

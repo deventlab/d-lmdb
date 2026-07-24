@@ -33,8 +33,12 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Audit dependencies
+        # Version pinned to match Makefile's install-tools target — an
+        # unpinned `cargo install` picks up whatever cargo-deny last shipped,
+        # which can change license/advisory defaults and pass locally but
+        # fail here (or vice versa) with no code change involved.
         run: |
-          cargo install cargo-deny --locked
+          cargo install cargo-deny --locked --version 0.20.2
           cargo deny check all
 
       - name: Check compatibility

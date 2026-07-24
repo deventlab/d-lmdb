@@ -28,7 +28,7 @@ const KEY_PURGE_BOUNDARY: &[u8] = b"purge_boundary";
 const WAL_MAP_SIZE: usize = 128 * 1024 * 1024;
 
 #[derive(Debug)]
-pub struct LmdbWal {
+pub(crate) struct LmdbWal {
     env: Env,
     log_db: Database<LmdbBytes, LmdbBytes>,
     meta_db: Database<LmdbBytes, LmdbBytes>,
@@ -36,12 +36,12 @@ pub struct LmdbWal {
 }
 
 #[derive(Debug)]
-pub struct LmdbStorageEngine {
+pub(crate) struct LmdbStorageEngine {
     wal: Arc<LmdbWal>,
 }
 
 impl LmdbStorageEngine {
-    pub fn new(raft_dir: PathBuf) -> Result<Self, Error> {
+    pub(crate) fn new(raft_dir: PathBuf) -> Result<Self, Error> {
         std::fs::create_dir_all(&raft_dir).map_err(|e| StorageError::DbError(e.to_string()))?;
 
         let env = unsafe {

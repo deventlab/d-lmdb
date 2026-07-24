@@ -21,6 +21,11 @@ CARGO ?= cargo
 RUST_LOG_LEVEL ?= d_lmdb=debug
 RUST_BACKTRACE ?= 1
 
+# Keep in sync with .github/workflows/dependency-audit.yml — an unpinned
+# cargo-deny version drifts between local and CI and can silently change
+# which licenses/advisories pass.
+CARGO_DENY_VERSION := 0.20.2
+
 RED := \033[0;31m
 GREEN := \033[0;32m
 YELLOW := \033[1;33m
@@ -69,9 +74,9 @@ install-tools: check-env
 		echo "$(YELLOW)Installing cargo-nextest...$(NC)"; \
 		cargo install cargo-nextest --locked; \
 	fi
-	@if ! command -v cargo-deny >/dev/null 2>&1; then \
-		echo "$(YELLOW)Installing cargo-deny...$(NC)"; \
-		cargo install cargo-deny --locked; \
+	@if [ "$$(cargo deny --version 2>/dev/null | awk '{print $$2}')" != "$(CARGO_DENY_VERSION)" ]; then \
+		echo "$(YELLOW)Installing cargo-deny $(CARGO_DENY_VERSION)...$(NC)"; \
+		cargo install cargo-deny --locked --version $(CARGO_DENY_VERSION); \
 	fi
 	@echo "$(GREEN)✓ Components installed$(NC)"
 
