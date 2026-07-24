@@ -12,7 +12,6 @@ use tempfile::TempDir;
 
 use crate::config::DLmdbConfig;
 use crate::state_machine::LmdbStateMachine;
-use crate::wire::Value;
 
 struct LmdbStateMachineBuilder {
     temp_dir: TempDir,
@@ -48,12 +47,11 @@ async fn test_lmdb_state_machine_suite() {
         .expect("LmdbStateMachine must pass all tests");
 }
 
-// ── TTL decode correctness tests ─────────────────────────────────────────────
-//
 // These tests bypass Raft and drive LmdbStateMachine directly via apply_chunk.
-// Values are pre-encoded with Value::encode_raw / encode_ttl to match exactly
-// what db.rs writes into the Raft log. This verifies that get() decodes the
-// tag-prefixed wire format and enforces TTL expiry correctly.
+// LmdbStateMachine never interprets `value`/TTL semantics itself — that lives in
+// db.rs now (see db_test.rs for TTL-specific coverage). Tests here only cover
+// mechanism: byte transparency, the empty-key guard, ordering/limit, and the
+// scan filter plumbing.
 
 async fn make_sm() -> (LmdbStateMachine, TempDir) {
     let tmp = TempDir::new().expect("temp dir");
@@ -80,96 +78,147 @@ fn insert_entry(
     }
 }
 
-#[tokio::test]
-async fn test_get_raw_encoded_value_returns_clean_payload() {
-    // A value stored via encode_raw must be returned without the 0x00 tag byte.
-    let (sm, _tmp) = make_sm().await;
-    let encoded = Value::encode_raw(b"alice");
-    sm.apply_chunk(&[insert_entry(1, b"user:1", encoded)]).await.unwrap();
+fn cas_entry(
+    index: u64,
+    key: &[u8],
+    expected: Option<&[u8]>,
+    value: &[u8],
+) -> ApplyEntry {
+    ApplyEntry {
+        index,
+        term: 1,
+        command: Command::CompareAndSwap {
+            key: Bytes::copy_from_slice(key),
+            expected: expected.map(Bytes::copy_from_slice),
+            value: Bytes::copy_from_slice(value),
+        },
+    }
+}
 
-    let result = sm.get(b"user:1").unwrap();
-    assert_eq!(result, Some(Bytes::from_static(b"alice")));
+fn batch_entry(
+    index: u64,
+    ops: Vec<d_engine::BatchOp>,
+) -> ApplyEntry {
+    ApplyEntry {
+        index,
+        term: 1,
+        command: Command::Batch { ops },
+    }
+}
+
+// ── Write-path transparency (M1/M2) ──────────────────────────────────────────
+//
+// LmdbStateMachine must never interpret `value` bytes for ANY write command —
+// Insert, CompareAndSwap, or Batch. This is what lets the generic
+// StateMachineTestSuite (which writes raw, unwrapped bytes directly) round-trip
+// correctly. These payloads are deliberately NOT wire-tagged and some start
+// with bytes (0x00 / 0x01) that the old tag-parsing design would have
+// misinterpreted as a TTL/raw marker and silently stripped or rejected.
+
+#[tokio::test]
+async fn test_insert_stores_value_byte_for_byte_untouched() {
+    let (sm, _tmp) = make_sm().await;
+    let raw = vec![0x00, 0x41, 0x42, 0x43];
+    sm.apply_chunk(&[insert_entry(1, b"k1", raw.clone())]).await.unwrap();
+    let result = sm.get(b"k1").unwrap();
+    assert_eq!(result, Some(Bytes::from(raw)));
 }
 
 #[tokio::test]
-async fn test_get_active_ttl_value_returns_clean_payload() {
-    // A TTL value that has not expired must return only the payload, not the
-    // [0x01][expires_at][payload] wire bytes.
+async fn test_compare_and_swap_stores_value_byte_for_byte_untouched() {
     let (sm, _tmp) = make_sm().await;
-    let encoded = Value::encode_ttl(b"session_data", Some(u64::MAX));
-    sm.apply_chunk(&[insert_entry(1, b"session:1", encoded)]).await.unwrap();
-
-    let result = sm.get(b"session:1").unwrap();
-    assert_eq!(result, Some(Bytes::from_static(b"session_data")));
+    let raw = vec![0x01, 0x02, 0x03];
+    sm.apply_chunk(&[cas_entry(1, b"k1", None, &raw)]).await.unwrap();
+    let result = sm.get(b"k1").unwrap();
+    assert_eq!(result, Some(Bytes::from(raw)));
 }
 
 #[tokio::test]
-async fn test_get_expired_ttl_value_returns_none() {
-    // A TTL value with expires_at = 0 (Unix epoch, always in the past) must
-    // be treated as expired: get() must return None.
+async fn test_batch_insert_stores_value_byte_for_byte_untouched() {
     let (sm, _tmp) = make_sm().await;
-    let encoded = Value::encode_ttl(b"stale", Some(0));
-    sm.apply_chunk(&[insert_entry(1, b"expired:key", encoded)]).await.unwrap();
+    let raw = vec![0x00];
+    sm.apply_chunk(&[batch_entry(1, vec![d_engine::BatchOp::Insert {
+        key: Bytes::from_static(b"k1"),
+        value: Bytes::from(raw.clone()),
+    }])])
+    .await
+    .unwrap();
+    let result = sm.get(b"k1").unwrap();
+    assert_eq!(result, Some(Bytes::from(raw)));
+}
 
-    let result = sm.get(b"expired:key").unwrap();
-    assert_eq!(result, None);
+// ── delete_local (M2) ─────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_delete_local_removes_key() {
+    let (sm, _tmp) = make_sm().await;
+    sm.apply_chunk(&[insert_entry(1, b"k1", b"v1".to_vec())]).await.unwrap();
+    assert_eq!(sm.get(b"k1").unwrap(), Some(Bytes::from_static(b"v1")));
+
+    sm.delete_local(b"k1").unwrap();
+
+    assert_eq!(sm.get(b"k1").unwrap(), None);
+}
+
+// ── scan filter mechanism (M3) ────────────────────────────────────────────────
+//
+// LmdbStateMachine doesn't know what TTL is — `filter` is an opaque function
+// supplied by the caller. These tests use a toy filter (keep values longer than
+// 1 byte, drop the rest) purely to prove the plumbing works: counting/limit
+// interact correctly with a caller-supplied decision, and `None` means "no
+// filter, return everything verbatim" — what the generic conformance suite
+// relies on. TTL-specific filter behavior belongs to db_test.rs.
+
+fn only_long_values(v: &[u8]) -> Option<Vec<u8>> {
+    if v.len() > 1 {
+        Some(v.to_vec())
+    } else {
+        None
+    }
 }
 
 #[tokio::test]
-async fn test_get_expired_ttl_lazily_deletes_key() {
-    // After get() on an expired key, the key must be physically removed from
-    // LMDB so that subsequent reads don't hit disk unnecessarily.
+async fn test_scan_all_without_filter_returns_values_verbatim() {
     let (sm, _tmp) = make_sm().await;
-    let encoded = Value::encode_ttl(b"gone", Some(0));
-    sm.apply_chunk(&[insert_entry(1, b"lazy:del", encoded)]).await.unwrap();
+    sm.apply_chunk(&[insert_entry(1, b"k1", vec![0x00, 0x41])]).await.unwrap();
 
-    // First get triggers lazy delete.
-    let _ = sm.get(b"lazy:del").unwrap();
-
-    // Second get must also return None — key is physically gone from LMDB.
-    let result = sm.get(b"lazy:del").unwrap();
-    assert_eq!(result, None);
-
-    // scan_all must not include the deleted key.
-    let scan = sm.scan_all(None).unwrap();
-    let found = scan.entries.iter().any(|(k, _)| k.as_ref() == b"lazy:del");
-    assert!(
-        !found,
-        "expired key must not appear in scan after lazy delete"
-    );
+    let scan = sm.scan_all(None, None::<fn(&[u8]) -> Option<Vec<u8>>>).unwrap();
+    assert_eq!(scan.entries.len(), 1);
+    assert_eq!(scan.entries[0].1, Bytes::from(vec![0x00, 0x41]));
 }
 
 #[tokio::test]
-async fn test_scan_excludes_expired_ttl_keys() {
-    // Expired keys must be silently skipped in scan results.
+async fn test_scan_all_with_filter_excludes_and_transforms() {
     let (sm, _tmp) = make_sm().await;
     sm.apply_chunk(&[
-        insert_entry(1, b"alive", Value::encode_ttl(b"ok", Some(u64::MAX))),
-        insert_entry(2, b"dead", Value::encode_ttl(b"nope", Some(0))),
+        insert_entry(1, b"short", vec![0x01]),
+        insert_entry(2, b"long", vec![0x01, 0x02]),
     ])
     .await
     .unwrap();
 
-    let scan = sm.scan_all(None).unwrap();
+    let scan = sm.scan_all(None, Some(only_long_values)).unwrap();
     let keys: Vec<&[u8]> = scan.entries.iter().map(|(k, _)| k.as_ref()).collect();
-    assert!(keys.contains(&b"alive".as_ref()), "active key must appear");
-    assert!(
-        !keys.contains(&b"dead".as_ref()),
-        "expired key must be excluded"
-    );
+    assert_eq!(keys, vec![b"long".as_ref()]);
 }
 
 #[tokio::test]
-async fn test_scan_returns_clean_payload_for_active_ttl_key() {
-    // Active TTL keys in scan results must carry only the payload — not the
-    // [0x01][expires_at][payload] wire bytes.
+async fn test_scan_all_with_filter_respects_limit_exactly() {
+    // limit must count only entries the filter accepts, in a single pass —
+    // not "fetch `limit` raw entries, then filter" (which could under-deliver).
     let (sm, _tmp) = make_sm().await;
-    let encoded = Value::encode_ttl(b"value", Some(u64::MAX));
-    sm.apply_chunk(&[insert_entry(1, b"k", encoded)]).await.unwrap();
+    sm.apply_chunk(&[
+        insert_entry(1, b"k1", vec![0x01]),
+        insert_entry(2, b"k2", vec![0x01, 0x02]),
+        insert_entry(3, b"k3", vec![0x01]),
+        insert_entry(4, b"k4", vec![0x01, 0x02]),
+    ])
+    .await
+    .unwrap();
 
-    let scan = sm.scan_all(None).unwrap();
-    assert_eq!(scan.entries.len(), 1);
-    assert_eq!(scan.entries[0].1, Bytes::from_static(b"value"));
+    let scan = sm.scan_all(Some(2), Some(only_long_values)).unwrap();
+    let keys: Vec<&[u8]> = scan.entries.iter().map(|(k, _)| k.as_ref()).collect();
+    assert_eq!(keys, vec![b"k2".as_ref(), b"k4".as_ref()]);
 }
 
 // ── scan_prefix_bounded correctness tests ────────────────────────────────────
@@ -181,11 +230,11 @@ async fn test_scan_returns_clean_payload_for_active_ttl_key() {
 #[tokio::test]
 async fn test_scan_prefix_returns_empty_for_empty_prefix() {
     let (sm, _tmp) = make_sm().await;
-    sm.apply_chunk(&[insert_entry(1, b"user:1", Value::encode_raw(b"alice"))])
-        .await
-        .unwrap();
+    sm.apply_chunk(&[insert_entry(1, b"user:1", b"alice".to_vec())]).await.unwrap();
 
-    let scan = sm.scan_prefix_bounded(b"", None, None).unwrap();
+    let scan = sm
+        .scan_prefix_bounded(b"", None, None, None::<fn(&[u8]) -> Option<Vec<u8>>>)
+        .unwrap();
     assert_eq!(scan.entries.len(), 0);
 }
 
@@ -193,14 +242,16 @@ async fn test_scan_prefix_returns_empty_for_empty_prefix() {
 async fn test_scan_prefix_returns_matching_keys() {
     let (sm, _tmp) = make_sm().await;
     sm.apply_chunk(&[
-        insert_entry(1, b"user:1", Value::encode_raw(b"alice")),
-        insert_entry(2, b"user:2", Value::encode_raw(b"bob")),
-        insert_entry(3, b"session:1", Value::encode_raw(b"tok")),
+        insert_entry(1, b"user:1", b"alice".to_vec()),
+        insert_entry(2, b"user:2", b"bob".to_vec()),
+        insert_entry(3, b"session:1", b"tok".to_vec()),
     ])
     .await
     .unwrap();
 
-    let scan = sm.scan_prefix_bounded(b"user:", None, None).unwrap();
+    let scan = sm
+        .scan_prefix_bounded(b"user:", None, None, None::<fn(&[u8]) -> Option<Vec<u8>>>)
+        .unwrap();
     let keys: Vec<&[u8]> = scan.entries.iter().map(|(k, _)| k.as_ref()).collect();
     assert_eq!(keys, vec![b"user:1".as_ref(), b"user:2".as_ref()]);
 }
@@ -209,68 +260,65 @@ async fn test_scan_prefix_returns_matching_keys() {
 //
 // LMDB rejects zero-length keys as a range bound (MDB_BAD_VALSIZE). scan_range_rev
 // guards against an empty `start` by returning an empty result instead of handing
-// b"" to LMDB's range API. These tests cover that guard plus the reverse-scan
-// ordering/limit/TTL semantics that scan_range_rev is responsible for.
+// b"" to LMDB's range API.
 
 #[tokio::test]
 async fn test_scan_range_rev_returns_empty_for_empty_start() {
-    // Regression test: an empty `start` must short-circuit to an empty result,
-    // not be handed to LMDB as a zero-length range bound.
     let (sm, _tmp) = make_sm().await;
-    sm.apply_chunk(&[insert_entry(1, b"a", Value::encode_raw(b"1"))]).await.unwrap();
+    sm.apply_chunk(&[insert_entry(1, b"a", b"1".to_vec())]).await.unwrap();
 
-    let scan = sm.scan_range_rev(b"", b"z", None).unwrap();
+    let scan = sm
+        .scan_range_rev(b"", b"z", None, None::<fn(&[u8]) -> Option<Vec<u8>>>)
+        .unwrap();
     assert_eq!(scan.entries.len(), 0);
 }
 
 #[tokio::test]
 async fn test_scan_range_rev_returns_keys_in_descending_order() {
-    // scan_range_rev must return matches in reverse key order, not insertion order.
     let (sm, _tmp) = make_sm().await;
     sm.apply_chunk(&[
-        insert_entry(1, b"log:1", Value::encode_raw(b"a")),
-        insert_entry(2, b"log:2", Value::encode_raw(b"b")),
-        insert_entry(3, b"log:3", Value::encode_raw(b"c")),
+        insert_entry(1, b"log:1", b"a".to_vec()),
+        insert_entry(2, b"log:2", b"b".to_vec()),
+        insert_entry(3, b"log:3", b"c".to_vec()),
     ])
     .await
     .unwrap();
 
-    let scan = sm.scan_range_rev(b"log:", b"log:~", None).unwrap();
+    let scan = sm
+        .scan_range_rev(
+            b"log:",
+            b"log:~",
+            None,
+            None::<fn(&[u8]) -> Option<Vec<u8>>>,
+        )
+        .unwrap();
     let keys: Vec<&[u8]> = scan.entries.iter().map(|(k, _)| k.as_ref()).collect();
-    assert_eq!(keys, vec![b"log:3".as_ref(), b"log:2".as_ref(), b"log:1".as_ref()]);
+    assert_eq!(keys, vec![
+        b"log:3".as_ref(),
+        b"log:2".as_ref(),
+        b"log:1".as_ref()
+    ]);
 }
 
 #[tokio::test]
 async fn test_scan_range_rev_respects_limit() {
-    // With a limit smaller than the range size, only the highest-keyed entries
-    // (the sliding window's tail) must be returned, still in descending order.
     let (sm, _tmp) = make_sm().await;
     sm.apply_chunk(&[
-        insert_entry(1, b"log:1", Value::encode_raw(b"a")),
-        insert_entry(2, b"log:2", Value::encode_raw(b"b")),
-        insert_entry(3, b"log:3", Value::encode_raw(b"c")),
+        insert_entry(1, b"log:1", b"a".to_vec()),
+        insert_entry(2, b"log:2", b"b".to_vec()),
+        insert_entry(3, b"log:3", b"c".to_vec()),
     ])
     .await
     .unwrap();
 
-    let scan = sm.scan_range_rev(b"log:", b"log:~", Some(2)).unwrap();
+    let scan = sm
+        .scan_range_rev(
+            b"log:",
+            b"log:~",
+            Some(2),
+            None::<fn(&[u8]) -> Option<Vec<u8>>>,
+        )
+        .unwrap();
     let keys: Vec<&[u8]> = scan.entries.iter().map(|(k, _)| k.as_ref()).collect();
     assert_eq!(keys, vec![b"log:3".as_ref(), b"log:2".as_ref()]);
-}
-
-#[tokio::test]
-async fn test_scan_range_rev_excludes_expired_ttl_keys() {
-    // Expired TTL keys must be filtered out of reverse scans, same as forward scans.
-    let (sm, _tmp) = make_sm().await;
-    sm.apply_chunk(&[
-        insert_entry(1, b"alive", Value::encode_ttl(b"ok", Some(u64::MAX))),
-        insert_entry(2, b"dead", Value::encode_ttl(b"nope", Some(0))),
-    ])
-    .await
-    .unwrap();
-
-    let scan = sm.scan_range_rev(b"a", b"z", None).unwrap();
-    let keys: Vec<&[u8]> = scan.entries.iter().map(|(k, _)| k.as_ref()).collect();
-    assert!(keys.contains(&b"alive".as_ref()), "active key must appear");
-    assert!(!keys.contains(&b"dead".as_ref()), "expired key must be excluded");
 }

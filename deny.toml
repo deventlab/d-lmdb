@@ -1,0 +1,49 @@
+# cargo-deny configuration. See https://embarkstudios.github.io/cargo-deny/
+# Minimal, permissive config — tighten (add specific `skip`/`ignore` entries)
+# as real conflicts surface.
+
+[graph]
+all-features = true
+
+[output]
+feature-depth = 1
+
+[advisories]
+ignore = [
+    "RUSTSEC-2025-0141",  # bincode 1.3.3 unmaintained but team considers it complete; no safe upgrade available
+    #"RUSTSEC-0000-0000",
+]
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+[licenses.private]
+ignore = false
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+deny = ["GPL-2.0", "GPL-3.0", "AGPL-3.0"]
+skip = [
+    #{ crate = "example@1.0.0", reason = "why this duplicate is unavoidable" },
+]
+
+[sources]
+unknown-registry = "warn"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = ["https://github.com/DEventLab/d-engine"]
+
+[sources.allow-org]
+github = ["DEventLab"]

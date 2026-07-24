@@ -23,11 +23,10 @@ use heed::CompactionOption;
 use heed::Database;
 use heed::Env;
 use heed::EnvOpenOptions;
+use tracing::error;
 use tracing::info;
 
 use crate::config::DLmdbConfig;
-use crate::unix_now_secs;
-use crate::wire::Value;
 
 const DB_KV: &str = "kv";
 const DB_META: &str = "meta";
@@ -163,12 +162,31 @@ impl Drop for LmdbStateMachine {
     fn drop(&mut self) {
         let log_id = self.last_applied();
         if let Err(e) = self.persist_last_applied(log_id) {
-            eprintln!("LmdbStateMachine: failed to persist last_applied on drop: {e}");
+            error!("LmdbStateMachine: failed to persist last_applied on drop: {e}");
         }
     }
 }
 
 impl LmdbStateMachine {
+    /// Physically remove `key` from local LMDB storage. Does NOT go through Raft.
+    ///
+    /// Safe without consensus: whether a key is expired is decided by `expires_at`,
+    /// which is already Raft-replicated and identical on every node. Physically
+    /// deleting the bytes is pure local housekeeping/space reclamation — it doesn't
+    /// change what any node reports for this key, since every node independently
+    /// enforces the same expiry check on read regardless of whether the underlying
+    /// bytes have been swept yet. Callers (db.rs) invoke this synchronously after
+    /// deciding a value has expired.
+    pub(crate) fn delete_local(
+        &self,
+        key: &[u8],
+    ) -> Result<(), EngineError> {
+        let mut wtxn = self.env.write_txn().map_err(lmdb_err)?;
+        self.kv_db.delete(&mut wtxn, key).map_err(lmdb_err)?;
+        wtxn.commit().map_err(lmdb_err)?;
+        Ok(())
+    }
+
     /// LMDB rejects a zero-length key as a range bound (MDB_BAD_VALSIZE). Every
     /// scan method that takes a caller-supplied start/prefix must guard on it
     /// before touching `kv_db` — this is the single place that constructs the
@@ -182,12 +200,27 @@ impl LmdbStateMachine {
         }
     }
 
-    fn scan_range_internal(
+    /// Single point of contact with `kv_db.range()` for every forward scan variant.
+    ///
+    /// Does not know or care what TTL/wire-tagging means — `filter` is a black box
+    /// supplied by the caller (`db.rs`): `None` means "every entry counts, return it
+    /// verbatim" (this is what the generic `StateMachine` conformance suite exercises,
+    /// since it never passes a filter); `Some(f)` means "call `f(raw_value)` for each
+    /// candidate — `None` back means discard without counting, `Some(payload)` means
+    /// count it and return `payload`". Deciding validity and producing the final
+    /// value happen in the same call, so a `limit` of N always yields exactly N
+    /// entries when N are available, in a single pass — no post-hoc filtering that
+    /// could under-deliver.
+    fn scan_range_core<F>(
         &self,
         start: std::ops::Bound<&[u8]>,
         end: Option<&[u8]>,
         limit: Option<usize>,
-    ) -> Result<ScanResult, EngineError> {
+        filter: Option<F>,
+    ) -> Result<ScanResult, EngineError>
+    where
+        F: Fn(&[u8]) -> Option<Vec<u8>>,
+    {
         let rtxn = self.env.read_txn().map_err(lmdb_err)?;
         let revision = self.last_applied_index.load(Ordering::SeqCst);
         let cap = limit.unwrap_or(usize::MAX);
@@ -206,8 +239,15 @@ impl LmdbStateMachine {
                     break;
                 }
             }
-            if let Some(payload) = decode_live_payload(v)? {
-                entries.push((Bytes::copy_from_slice(k), Bytes::copy_from_slice(payload)));
+            match &filter {
+                Some(f) => {
+                    if let Some(payload) = f(v) {
+                        entries.push((Bytes::copy_from_slice(k), Bytes::from(payload)));
+                    }
+                }
+                None => {
+                    entries.push((Bytes::copy_from_slice(k), Bytes::copy_from_slice(v)));
+                }
             }
         }
 
@@ -215,34 +255,46 @@ impl LmdbStateMachine {
     }
 
     /// Scan keys in `[start, end)`, returning at most `limit` entries.
-    pub fn scan_range(
+    pub fn scan_range<F>(
         &self,
         start: &[u8],
         end: Option<&[u8]>,
         limit: Option<usize>,
-    ) -> Result<ScanResult, EngineError> {
+        filter: Option<F>,
+    ) -> Result<ScanResult, EngineError>
+    where
+        F: Fn(&[u8]) -> Option<Vec<u8>>,
+    {
         if start.is_empty() {
             return Ok(self.empty_key_guard());
         }
 
-        self.scan_range_internal(Bound::Included(start), end, limit)
+        self.scan_range_core(Bound::Included(start), end, limit, filter)
     }
 
     /// Scan all keys, returning at most `limit` entries.
-    pub fn scan_all(
+    pub fn scan_all<F>(
         &self,
         limit: Option<usize>,
-    ) -> Result<ScanResult, EngineError> {
-        self.scan_range_internal(Bound::Unbounded, None, limit)
+        filter: Option<F>,
+    ) -> Result<ScanResult, EngineError>
+    where
+        F: Fn(&[u8]) -> Option<Vec<u8>>,
+    {
+        self.scan_range_core(Bound::Unbounded, None, limit, filter)
     }
 
     /// Scan keys sharing `prefix`, optionally starting after `after` (exclusive) for pagination.
-    pub fn scan_prefix_bounded(
+    pub fn scan_prefix_bounded<F>(
         &self,
         prefix: &[u8],
         after: Option<&[u8]>,
         limit: Option<usize>,
-    ) -> Result<ScanResult, EngineError> {
+        filter: Option<F>,
+    ) -> Result<ScanResult, EngineError>
+    where
+        F: Fn(&[u8]) -> Option<Vec<u8>>,
+    {
         if prefix.is_empty() {
             return Ok(self.empty_key_guard());
         }
@@ -252,19 +304,23 @@ impl LmdbStateMachine {
             Some(a) => Bound::Excluded(a),
             None => Bound::Included(prefix),
         };
-        self.scan_range_internal(start, end.as_deref(), limit)
+        self.scan_range_core(start, end.as_deref(), limit, filter)
     }
 
     /// Scan keys in `[start, end)` in descending order, returning at most `limit` entries.
     ///
     /// Scans forward with a sliding window of size `limit`, so memory usage is
     /// O(limit), not O(range size). Full range is always traversed on disk.
-    pub fn scan_range_rev(
+    pub fn scan_range_rev<F>(
         &self,
         start: &[u8],
         end: &[u8],
         limit: Option<usize>,
-    ) -> Result<ScanResult, EngineError> {
+        filter: Option<F>,
+    ) -> Result<ScanResult, EngineError>
+    where
+        F: Fn(&[u8]) -> Option<Vec<u8>>,
+    {
         if start.is_empty() {
             return Ok(self.empty_key_guard());
         }
@@ -279,11 +335,15 @@ impl LmdbStateMachine {
         let mut window: VecDeque<(Bytes, Bytes)> = VecDeque::new();
         for result in iter {
             let (k, v) = result.map_err(lmdb_err)?;
-            if let Some(payload) = decode_live_payload(v)? {
+            let candidate = match &filter {
+                Some(f) => f(v),
+                None => Some(v.to_vec()),
+            };
+            if let Some(payload) = candidate {
                 if window.len() >= cap {
                     window.pop_front();
                 }
-                window.push_back((Bytes::copy_from_slice(k), Bytes::copy_from_slice(payload)));
+                window.push_back((Bytes::copy_from_slice(k), Bytes::from(payload)));
             }
         }
 
@@ -316,15 +376,7 @@ impl StateMachine for LmdbStateMachine {
         let Some(raw_bytes) = self.kv_db.get(&rtxn, key_buffer).map_err(lmdb_err)? else {
             return Ok(None);
         };
-        if let Some(payload) = decode_live_payload(raw_bytes)? {
-            Ok(Some(Bytes::copy_from_slice(payload)))
-        } else {
-            drop(rtxn);
-            let mut wtxn = self.env.write_txn().map_err(lmdb_err)?;
-            self.kv_db.delete(&mut wtxn, key_buffer).map_err(lmdb_err)?;
-            wtxn.commit().map_err(lmdb_err)?;
-            Ok(None)
-        }
+        Ok(Some(Bytes::copy_from_slice(raw_bytes)))
     }
 
     async fn apply_chunk(
@@ -579,16 +631,15 @@ impl StateMachine for LmdbStateMachine {
         &self,
         prefix: &[u8],
     ) -> Result<ScanResult, EngineError> {
-        self.scan_prefix_bounded(prefix, None, None)
+        // No filter: this is the generic StateMachine trait method that the
+        // conformance test suite calls directly — must stay byte-transparent.
+        self.scan_prefix_bounded(prefix, None, None, None::<fn(&[u8]) -> Option<Vec<u8>>>)
     }
 }
 
 // ---- helpers ----------------------------------------------------------------
 
 fn lmdb_err(e: heed::Error) -> EngineError {
-    StorageError::StateMachineError(e.to_string()).into()
-}
-fn codec_err(e: impl std::fmt::Display) -> EngineError {
     StorageError::StateMachineError(e.to_string()).into()
 }
 fn u64_from_bytes(b: &[u8]) -> u64 {
@@ -609,24 +660,6 @@ fn next_prefix(prefix: &[u8]) -> Option<Vec<u8>> {
             }
             Some(_) => {
                 next.pop();
-            }
-        }
-    }
-}
-
-fn decode_live_payload(bytes: &[u8]) -> Result<Option<&[u8]>, EngineError> {
-    let decoded = Value::decode(bytes).map_err(|_| codec_err("corrupt value: invalid tag byte"))?;
-    match decoded {
-        Value::Raw(payload) => Ok(Some(payload)),
-        Value::Ttl {
-            expires_at,
-            payload,
-        } => {
-            let now = unix_now_secs();
-            if expires_at <= now {
-                Ok(None)
-            } else {
-                Ok(Some(payload))
             }
         }
     }

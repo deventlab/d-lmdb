@@ -70,7 +70,10 @@ fn test_decode_ttl_returns_expires_at_and_payload() {
     let ts: u64 = 9_999_999_999;
     let encoded = Value::encode_ttl(b"world", Some(ts));
     match Value::decode(&encoded).unwrap() {
-        Value::Ttl { expires_at, payload } => {
+        Value::Ttl {
+            expires_at,
+            payload,
+        } => {
             assert_eq!(expires_at, ts);
             assert_eq!(payload, b"world");
         }
@@ -104,7 +107,10 @@ fn test_decode_ttl_exact_header_no_payload() {
     let mut buf = vec![0x01];
     buf.extend_from_slice(&ts.to_be_bytes());
     match Value::decode(&buf).unwrap() {
-        Value::Ttl { expires_at, payload } => {
+        Value::Ttl {
+            expires_at,
+            payload,
+        } => {
             assert_eq!(expires_at, 42);
             assert_eq!(payload, b"");
         }
@@ -130,7 +136,10 @@ fn test_roundtrip_ttl() {
     let ts: u64 = 1_234_567_890;
     let encoded = Value::encode_ttl(payload, Some(ts));
     match Value::decode(&encoded).unwrap() {
-        Value::Ttl { expires_at, payload: p } => {
+        Value::Ttl {
+            expires_at,
+            payload: p,
+        } => {
             assert_eq!(expires_at, ts);
             assert_eq!(p, payload);
         }

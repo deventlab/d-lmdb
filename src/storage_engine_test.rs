@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use d_engine::storage_engine_test::{StorageEngineBuilder, StorageEngineTestSuite};
+use d_engine::storage_engine_test::StorageEngineBuilder;
+use d_engine::storage_engine_test::StorageEngineTestSuite;
 use d_engine::Error as EngineError;
 use tempfile::TempDir;
 
@@ -13,7 +14,9 @@ struct LmdbStorageEngineBuilder {
 
 impl LmdbStorageEngineBuilder {
     fn new() -> Self {
-        Self { temp_dir: TempDir::new().expect("temp dir") }
+        Self {
+            temp_dir: TempDir::new().expect("temp dir"),
+        }
     }
 }
 

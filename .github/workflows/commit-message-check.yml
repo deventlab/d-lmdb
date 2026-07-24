@@ -1,0 +1,58 @@
+name: Validate Commit Messages
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+
+jobs:
+  validate-commits:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check commit message format
+        run: |
+          BASE_SHA=${{ github.event.pull_request.base.sha }}
+          HEAD_SHA=${{ github.event.pull_request.head.sha }}
+
+          ALLOWED_TYPES="feat|fix|refs|doc|docs|perf|refactor|style|test|chore|ci|revert"
+          SCOPE_PATTERN="([a-z][a-z0-9-]*)"
+          TICKET_PATTERN="#[0-9]+(, #[0-9]+)*:"
+          FULL_PATTERN="^($ALLOWED_TYPES)(\($SCOPE_PATTERN\))? $TICKET_PATTERN.+$"
+
+          # Validate the format of all new submissions
+          for commit in $(git rev-list $BASE_SHA..$HEAD_SHA); do
+            msg=$(git show -s --format=%s $commit)
+
+            # skip merge
+            if [[ "$msg" =~ ^Merge ]]; then
+              continue
+            fi
+
+            # skip cargo release auto-generated commits
+            if [[ "$msg" =~ ^chore:\ Release ]]; then
+              continue
+            fi
+
+            # Basic format check regular expression
+            if ! echo "$msg" | grep -qE "$FULL_PATTERN"; then
+              echo "::error::Invalid commit format: $msg"
+              echo "Commit must follow: <type>(<scope>) #<ticket>: <description>"
+              echo "Allowed types: $ALLOWED_TYPES"
+              echo "Scope: lowercase with hyphen (optional)"
+              exit 1
+            fi
+
+            # Verify that non-chore/ci commits contain tickets
+            if ! echo "$msg" | grep -qE "$TICKET_PATTERN"; then
+              echo "::error::Ticket number missing: $msg"
+              echo "All non-merge commits must reference a ticket"
+              exit 1
+            fi
+          done

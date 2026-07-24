@@ -118,7 +118,7 @@ impl DLmdb {
         &self,
         key: impl AsRef<[u8]>,
     ) -> Result<Option<Bytes>> {
-        Ok(self.state_machine.get(key.as_ref())?)
+        self.get_live(key.as_ref())
     }
 
     /// Eventual read. Not guaranteed to reflect the latest committed write.
@@ -126,7 +126,7 @@ impl DLmdb {
         &self,
         key: impl AsRef<[u8]>,
     ) -> Result<bool> {
-        Ok(self.state_machine.get(key.as_ref())?.is_some())
+        Ok(self.get_live(key.as_ref())?.is_some())
     }
 
     /// Eventual read. Not guaranteed to reflect the latest committed write.
@@ -134,7 +134,36 @@ impl DLmdb {
         &self,
         keys: &[K],
     ) -> Result<Vec<Option<Bytes>>> {
-        keys.iter().map(|k| Ok(self.state_machine.get(k.as_ref())?)).collect()
+        keys.iter().map(|k| self.get_live(k.as_ref())).collect()
+    }
+
+    /// Reads the raw value from the state machine (byte-transparent) and applies
+    /// TTL semantics on top: decode the wire envelope, treat an expired TTL value
+    /// as absent, and physically clean up expired entries synchronously
+    /// (local-only — see `LmdbStateMachine::delete_local`; safe without Raft
+    /// because expiry is decided by the already-replicated `expires_at`).
+    fn get_live(
+        &self,
+        key: &[u8],
+    ) -> Result<Option<Bytes>> {
+        let Some(raw) = self.state_machine.get(key)? else {
+            return Ok(None);
+        };
+        match Value::decode(&raw) {
+            Ok(Value::Raw(payload)) => Ok(Some(Bytes::copy_from_slice(payload))),
+            Ok(Value::Ttl {
+                expires_at,
+                payload,
+            }) => {
+                if expires_at <= unix_now_secs() {
+                    self.state_machine.delete_local(key)?;
+                    Ok(None)
+                } else {
+                    Ok(Some(Bytes::copy_from_slice(payload)))
+                }
+            }
+            Err(_) => Err(Error::Storage("corrupt value: invalid tag byte".into())),
+        }
     }
 
     /// Number of keys. Eventual read — may lag behind the leader.
@@ -156,7 +185,7 @@ impl DLmdb {
         &self,
         limit: Option<usize>,
     ) -> Result<ScanResult> {
-        Ok(self.state_machine.scan_all(limit)?)
+        Ok(self.state_machine.scan_all(limit, Some(ttl_filter))?)
     }
 
     /// Eventual read. Not guaranteed to reflect the latest committed write.
@@ -170,7 +199,12 @@ impl DLmdb {
         after: Option<&[u8]>,
         limit: Option<usize>,
     ) -> Result<ScanResult> {
-        Ok(self.state_machine.scan_prefix_bounded(prefix.as_ref(), after, limit)?)
+        Ok(self.state_machine.scan_prefix_bounded(
+            prefix.as_ref(),
+            after,
+            limit,
+            Some(ttl_filter),
+        )?)
     }
 
     /// Eventual read. Not guaranteed to reflect the latest committed write.
@@ -183,7 +217,12 @@ impl DLmdb {
         end: impl AsRef<[u8]>,
         limit: Option<usize>,
     ) -> Result<ScanResult> {
-        Ok(self.state_machine.scan_range(start.as_ref(), Some(end.as_ref()), limit)?)
+        Ok(self.state_machine.scan_range(
+            start.as_ref(),
+            Some(end.as_ref()),
+            limit,
+            Some(ttl_filter),
+        )?)
     }
 
     /// Eventual read. Not guaranteed to reflect the latest committed write.
@@ -196,7 +235,12 @@ impl DLmdb {
         end: impl AsRef<[u8]>,
         limit: Option<usize>,
     ) -> Result<ScanResult> {
-        Ok(self.state_machine.scan_range_rev(start.as_ref(), end.as_ref(), limit)?)
+        Ok(self.state_machine.scan_range_rev(
+            start.as_ref(),
+            end.as_ref(),
+            limit,
+            Some(ttl_filter),
+        )?)
     }
 
     // ---- async linearizable read: Raft ReadIndex round-trip ----------------
@@ -316,6 +360,24 @@ impl DLmdb {
     pub async fn close(self) -> Result<()> {
         self.inner.stop().await?;
         Ok(())
+    }
+}
+
+// ---- scan filter --------------------------------------------------------------
+
+/// Decides whether a raw `kv_db` value is live, and what to return for it.
+/// `LmdbStateMachine` treats this as an opaque function — it has no idea what
+/// a "tag byte" or "expires_at" is. `None` drops the entry (expired, or an
+/// unrecognized/corrupt tag); `Some(payload)` keeps it, already stripped of
+/// the wire envelope.
+fn ttl_filter(raw: &[u8]) -> Option<Vec<u8>> {
+    match Value::decode(raw) {
+        Ok(Value::Raw(payload)) => Some(payload.to_vec()),
+        Ok(Value::Ttl {
+            expires_at,
+            payload,
+        }) if expires_at > unix_now_secs() => Some(payload.to_vec()),
+        _ => None,
     }
 }
 
