@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use d_engine::Error as EngineError;
 use d_engine::storage_engine_test::StorageEngineBuilder;
 use d_engine::storage_engine_test::StorageEngineTestSuite;
-use d_engine::Error as EngineError;
 use tempfile::TempDir;
 
 use crate::storage_engine::LmdbStorageEngine;

@@ -1,22 +1,22 @@
 use std::ops::RangeInclusive;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 
 use async_trait::async_trait;
-use d_engine::common::Entry;
-use d_engine::common::LogId;
 use d_engine::Error;
 use d_engine::HardState;
 use d_engine::LogStore;
 use d_engine::MetaStore;
 use d_engine::StorageEngine;
 use d_engine::StorageError;
-use heed::types::Bytes as LmdbBytes;
+use d_engine::common::Entry;
+use d_engine::common::LogId;
 use heed::Database;
 use heed::Env;
 use heed::EnvOpenOptions;
+use heed::types::Bytes as LmdbBytes;
 use prost::Message;
 
 const DB_LOG: &str = "log";

@@ -141,7 +141,7 @@ build-release: check
 # ============================================================================
 
 ## Run all tests with nextest (fast, parallel)
-test: install-tools
+test: check install-tools
 	@CI=1 RUST_LOG=$(RUST_LOG_LEVEL) RUST_BACKTRACE=$(RUST_BACKTRACE) \
 		$(CARGO) nextest run --all-features --no-fail-fast
 	@$(CARGO) test --doc --all-features

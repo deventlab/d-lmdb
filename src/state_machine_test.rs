@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use d_engine::state_machine_test::StateMachineBuilder;
-use d_engine::state_machine_test::StateMachineTestSuite;
 use d_engine::ApplyEntry;
 use d_engine::Command;
 use d_engine::Error as EngineError;
 use d_engine::StateMachine;
+use d_engine::state_machine_test::StateMachineBuilder;
+use d_engine::state_machine_test::StateMachineTestSuite;
 use tempfile::TempDir;
 
 use crate::config::DLmdbConfig;
@@ -137,10 +137,13 @@ async fn test_compare_and_swap_stores_value_byte_for_byte_untouched() {
 async fn test_batch_insert_stores_value_byte_for_byte_untouched() {
     let (sm, _tmp) = make_sm().await;
     let raw = vec![0x00];
-    sm.apply_chunk(&[batch_entry(1, vec![d_engine::BatchOp::Insert {
-        key: Bytes::from_static(b"k1"),
-        value: Bytes::from(raw.clone()),
-    }])])
+    sm.apply_chunk(&[batch_entry(
+        1,
+        vec![d_engine::BatchOp::Insert {
+            key: Bytes::from_static(b"k1"),
+            value: Bytes::from(raw.clone()),
+        }],
+    )])
     .await
     .unwrap();
     let result = sm.get(b"k1").unwrap();
@@ -170,11 +173,7 @@ async fn test_delete_local_removes_key() {
 // relies on. TTL-specific filter behavior belongs to db_test.rs.
 
 fn only_long_values(v: &[u8]) -> Option<Vec<u8>> {
-    if v.len() > 1 {
-        Some(v.to_vec())
-    } else {
-        None
-    }
+    if v.len() > 1 { Some(v.to_vec()) } else { None }
 }
 
 #[tokio::test]
@@ -293,11 +292,10 @@ async fn test_scan_range_rev_returns_keys_in_descending_order() {
         )
         .unwrap();
     let keys: Vec<&[u8]> = scan.entries.iter().map(|(k, _)| k.as_ref()).collect();
-    assert_eq!(keys, vec![
-        b"log:3".as_ref(),
-        b"log:2".as_ref(),
-        b"log:1".as_ref()
-    ]);
+    assert_eq!(
+        keys,
+        vec![b"log:3".as_ref(), b"log:2".as_ref(), b"log:1".as_ref()]
+    );
 }
 
 #[tokio::test]

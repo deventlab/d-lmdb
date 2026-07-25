@@ -25,7 +25,7 @@ fn test_validate_key_rejects_key_over_limit() {
     let key = vec![b'k'; MAX_KEY_BYTES + 1];
     match validate_key(&key, MAX_KEY_BYTES) {
         Err(Error::KeyTooLarge(n)) => assert_eq!(n, MAX_KEY_BYTES + 1),
-        other => panic!("expected KeyTooLarge, got {:?}", other),
+        other => panic!("expected KeyTooLarge, got {other:?}"),
     }
 }
 
@@ -60,6 +60,6 @@ fn test_validate_value_rejects_value_over_limit() {
     let value = vec![b'v'; MAX_VALUE_BYTES + 1];
     match validate_value(&value, MAX_VALUE_BYTES) {
         Err(Error::ValueTooLarge(n)) => assert_eq!(n, MAX_VALUE_BYTES + 1),
-        other => panic!("expected ValueTooLarge, got {:?}", other),
+        other => panic!("expected ValueTooLarge, got {other:?}"),
     }
 }

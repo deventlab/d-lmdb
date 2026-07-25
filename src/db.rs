@@ -12,13 +12,13 @@ use d_engine::RaftNodeConfig;
 use d_engine::ScanResult;
 use d_engine::StateMachine;
 
+use crate::Error;
+use crate::Result;
 use crate::config::DLmdbConfig;
 use crate::state_machine::LmdbStateMachine;
 use crate::storage_engine::LmdbStorageEngine;
 use crate::unix_now_secs;
 use crate::wire::Value;
-use crate::Error;
-use crate::Result;
 
 type Inner = EmbeddedEngine<LmdbStorageEngine, LmdbStateMachine>;
 

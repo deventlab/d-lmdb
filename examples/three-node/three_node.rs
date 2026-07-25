@@ -41,7 +41,7 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Basic KV — same API as single-node ───────────────────────────────────
     if let Err(e) = db.put(b"user:1", b"alice").await {
-        eprintln!("db put error: {:?}", e);
+        eprintln!("db put error: {e:?}");
     }
 
     if let Some(v) = db.get(b"user:1")? {
@@ -66,21 +66,21 @@ async fn main() -> anyhow::Result<()> {
         ])
         .await
     {
-        eprintln!("db batch error: {:?}", e);
+        eprintln!("db batch error: {e:?}");
     }
 
     // ── Read-modify-write — CAS loop ──────────────────────────────────────────
     // In a multi-node cluster, concurrent writers on different nodes can race.
     // CAS detects the conflict; the retry loop converges in O(contention) rounds.
     if let Err(e) = db.put(b"counter:views", b"0").await {
-        eprintln!("db put error: {:?}", e);
+        eprintln!("db put error: {e:?}");
     }
 
     loop {
         let current = match db.get_linearizable(b"counter:views").await {
             Ok(v) => v,
             Err(e) => {
-                eprintln!("db get_linearizable error: {:?}", e);
+                eprintln!("db get_linearizable error: {e:?}");
                 break;
             }
         };
@@ -101,7 +101,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             Err(e) => {
-                eprintln!("db CAS error: {:?}", e);
+                eprintln!("db CAS error: {e:?}");
                 break;
             }
         }
@@ -119,18 +119,18 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
         }
-        Err(e) => eprintln!("db get_linearizable error: {:?}", e),
+        Err(e) => eprintln!("db get_linearizable error: {e:?}"),
     }
 
     // ── TTL ───────────────────────────────────────────────────────────────────
     // TTL is enforced cluster-wide: expiry is based on wall-clock at write time,
     // replicated as part of the Raft entry, consistent on all nodes.
     if let Err(e) = db.put_with_ttl(b"session:tok_xyz", b"user:1", 30).await {
-        eprintln!("db put_with_ttl error: {:?}", e);
+        eprintln!("db put_with_ttl error: {e:?}");
     }
 
     if let Err(e) = db.put_with_ttl(b"lock:report:7", b"node:1", 10).await {
-        eprintln!("db put_with_ttl error: {:?}", e);
+        eprintln!("db put_with_ttl error: {e:?}");
     }
 
     // ── Scans ─────────────────────────────────────────────────────────────────
