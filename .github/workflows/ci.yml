@@ -83,7 +83,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          file: lcov.info
+          files: lcov.info
           flags: unittests
           name: codecov-d-lmdb
           verbose: true

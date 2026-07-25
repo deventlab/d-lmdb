@@ -19,7 +19,7 @@ Steps to reproduce the behavior:
 A clear and concise description of what you expected to happen.
 
 **Actual behavior**
-A clear and concise description of what actually happened. Add logs/screenshots if helpful.
+A clear and concise description of what actually happened. Add redacted logs/screenshots if helpful; remove secrets and personal data first.
 
 **Env (please complete the following information):**
 - d-lmdb version [e.g., a tag such as `v0.1.0` or a commit hash]
