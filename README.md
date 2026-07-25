@@ -1,6 +1,12 @@
 # d-lmdb
 
-> **Status: Experimental — built to demonstrate d-engine's replication capabilities**
+![status](https://img.shields.io/badge/status-experimental-orange)
+[![CI](https://github.com/deventlab/d-lmdb/actions/workflows/ci.yml/badge.svg)](https://github.com/deventlab/d-lmdb/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/deventlab/d-lmdb/graph/badge.svg)](https://codecov.io/gh/deventlab/d-lmdb)
+![Static Badge](https://img.shields.io/badge/license-MIT%20%7C%20Apache--2.0-blue)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/deventlab/d-lmdb)
+
+> Built to demonstrate d-engine's replication capabilities.
 
 ## What This Is
 

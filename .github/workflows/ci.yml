@@ -39,9 +39,11 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
   test:
-    name: Test
+    name: Test and Collect Coverage
     runs-on: ubuntu-latest
     needs: lint
+    permissions:
+      contents: read
     env:
       CI: 1
     steps:
@@ -53,6 +55,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.89.0"
+          components: llvm-tools-preview
 
       - name: Cache using Swatinem/rust-cache
         uses: Swatinem/rust-cache@v2
@@ -62,14 +65,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler
 
-      - name: Install cargo-nextest
-        # Version pinned to match Makefile's install-tools target — an
+      - name: Install cargo tools
+        # Versions pinned to match Makefile's install-tools target — an
         # unpinned `cargo install` grabs the latest release, which can
         # require a newer rustc than the toolchain pinned above (1.89.0).
-        run: cargo install cargo-nextest --locked --version 0.9.114
+        run: |
+          cargo install cargo-nextest --locked --version 0.9.114
+          cargo install cargo-llvm-cov --locked --version 0.8.7
 
-      - name: Run tests
-        run: cargo nextest run --all-features --no-fail-fast
+      - name: Run tests with nextest and generate coverage
+        run: cargo llvm-cov nextest --all-features --lcov --output-path lcov.info --no-fail-fast --ignore-filename-regex "src/error.rs"
 
       - name: Run doc tests
         run: cargo test --doc --all-features
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          file: lcov.info
+          flags: unittests
+          name: codecov-d-lmdb
+          verbose: true
