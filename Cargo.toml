@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/DEventLab/d-lmdb"
 keywords = ["raft", "distributed", "key-value", "lmdb", "consensus"]
 categories = ["database", "concurrency"]
-rust-version = "1.88"
+rust-version = "1.89"
 
 [dependencies]
 # production: d-engine = "0.2"

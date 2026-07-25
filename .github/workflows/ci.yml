@@ -29,7 +29,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.88"
+          toolchain: "1.89.0"
           components: rustfmt, clippy
 
       - name: Check Formatting
@@ -52,7 +52,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.88"
+          toolchain: "1.89.0"
 
       - name: Cache using Swatinem/rust-cache
         uses: Swatinem/rust-cache@v2
@@ -63,7 +63,10 @@ jobs:
           sudo apt-get install -y protobuf-compiler
 
       - name: Install cargo-nextest
-        run: cargo install cargo-nextest --locked
+        # Version pinned to match Makefile's install-tools target — an
+        # unpinned `cargo install` grabs the latest release, which can
+        # require a newer rustc than the toolchain pinned above (1.89.0).
+        run: cargo install cargo-nextest --locked --version 0.9.114
 
       - name: Run tests
         run: cargo nextest run --all-features --no-fail-fast

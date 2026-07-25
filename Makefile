@@ -26,6 +26,11 @@ RUST_BACKTRACE ?= 1
 # which licenses/advisories pass.
 CARGO_DENY_VERSION := 0.20.2
 
+# Keep in sync with .github/workflows/ci.yml — an unpinned cargo-nextest
+# grabs the latest release, which can require a newer rustc than the
+# toolchain pinned in rust-toolchain.toml (1.89.0).
+CARGO_NEXTEST_VERSION := 0.9.114
+
 RED := \033[0;31m
 GREEN := \033[0;32m
 YELLOW := \033[1;33m
@@ -70,9 +75,9 @@ check-env:
 ## Install required Rust components (rustfmt, clippy, nextest, deny)
 install-tools: check-env
 	@rustup component add rustfmt clippy 2>/dev/null || true
-	@if ! command -v cargo-nextest >/dev/null 2>&1; then \
-		echo "$(YELLOW)Installing cargo-nextest...$(NC)"; \
-		cargo install cargo-nextest --locked; \
+	@if [ "$$(cargo nextest --version 2>/dev/null | awk '{print $$2}')" != "$(CARGO_NEXTEST_VERSION)" ]; then \
+		echo "$(YELLOW)Installing cargo-nextest $(CARGO_NEXTEST_VERSION)...$(NC)"; \
+		cargo install cargo-nextest --locked --version $(CARGO_NEXTEST_VERSION); \
 	fi
 	@if [ "$$(cargo deny --version 2>/dev/null | awk '{print $$2}')" != "$(CARGO_DENY_VERSION)" ]; then \
 		echo "$(YELLOW)Installing cargo-deny $(CARGO_DENY_VERSION)...$(NC)"; \

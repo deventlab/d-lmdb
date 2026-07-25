@@ -234,10 +234,10 @@ impl LmdbStateMachine {
                 break;
             }
             let (k, v) = result.map_err(lmdb_err)?;
-            if let Some(e) = end {
-                if k >= e {
-                    break;
-                }
+            if let Some(e) = end
+                && k >= e
+            {
+                break;
             }
             match &filter {
                 Some(f) => {
