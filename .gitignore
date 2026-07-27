@@ -33,5 +33,6 @@ target
 .DS_Store
 .zed/
 
-# Library crate: consumers resolve their own dependency versions.
-Cargo.lock
+# Workspace now includes d-lmdb-server, a deployable binary — commit Cargo.lock
+# for reproducible builds. (d-lmdb the library still doesn't need one committed
+# on its own, but Cargo workspaces share a single lockfile at the root.)

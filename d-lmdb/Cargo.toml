@@ -33,8 +33,8 @@ d-engine = { git = "https://github.com/DEventLab/d-engine", branch = "main", def
 
 [[example]]
 name = "single_node"
-path = "examples/single-node/single_node.rs"
+path = "../examples/single-node/single_node.rs"
 
 [[example]]
 name = "three_node"
-path = "examples/three-node/three_node.rs"
+path = "../examples/three-node/three_node.rs"

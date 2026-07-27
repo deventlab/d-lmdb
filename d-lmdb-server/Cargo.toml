@@ -1,0 +1,11 @@
+[package]
+name = "d-lmdb-server"
+version = "0.1.0"
+edition = "2024"
+description = "Standalone HTTP server / Docker entrypoint for d-lmdb"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/DEventLab/d-lmdb"
+rust-version = "1.89"
+
+[dependencies]
+d-lmdb = { path = "../d-lmdb", version = "0.1" }
