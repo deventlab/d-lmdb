@@ -8,7 +8,7 @@
 
 ## What This Is
 
-d-lmdb demonstrates one concrete way [d-engine](https://github.com/DEventLab/d-engine) (a Raft consensus library) can add distributed replication to an existing embedded storage engine — LMDB was chosen because it's a well-known, compact embedded key-value store.
+d-lmdb demonstrates [d-engine](https://github.com/DEventLab/d-engine)'s core capability: adding distributed, strongly-consistent replication to an existing embedded storage engine.
 
 The broader point: **d-engine adds an optional replicated write path to storage engines and applications.** — LMDB is one possible example.
 
