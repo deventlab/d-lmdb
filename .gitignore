@@ -41,3 +41,4 @@ target
 # Developer's real d-lmdb-server config, copied from config.example.toml — may
 # contain machine-local paths, gets regenerated per-developer, never committed.
 /d-lmdb-server/config.toml
+.envrc
