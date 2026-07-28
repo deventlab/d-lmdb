@@ -29,9 +29,10 @@ target
 /logs/
 **/*.mdb
 
-# OS / editor
+# OS / editor / local AI-agent tooling config
 .DS_Store
 .zed/
+.agents/
 
 # Workspace now includes d-lmdb-server, a deployable binary — commit Cargo.lock
 # for reproducible builds. (d-lmdb the library still doesn't need one committed
