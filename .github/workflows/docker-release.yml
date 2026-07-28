@@ -1,0 +1,114 @@
+name: Docker Release
+
+# Triggered by creating a GitHub Release, not every push to main.
+on:
+  release:
+    types: [created]
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: deventlab/d-lmdb
+
+jobs:
+  # Build, smoke-test, then push by digest — per platform. arm64 runs
+  # under QEMU: verifies correctness, not real hardware timing.
+  build-test-push:
+    name: Build, test, push (${{ matrix.platform }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+    steps:
+      - name: Set platform tag for artifact naming
+        run: |
+          platform=${{ matrix.platform }}
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image for this platform (local only, not pushed yet)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          tags: d-lmdb-server:compose
+          load: true
+
+      - name: Run 3-node smoke test against the freshly built image
+        run: DLMDB_SKIP_BUILD=1 ./compose/smoke-test.sh
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
+
+      - name: Push by digest (smoke test passed — cached layers, no rebuild)
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=docker.io/${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.push.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Only runs if every platform above succeeded.
+  merge:
+    name: Merge multi-platform manifest
+    runs-on: ubuntu-latest
+    needs: build-test-push
+    steps:
+      - name: Strip 'v' prefix from release tag
+        run: |
+          VERSION=${{ github.event.release.tag_name }}
+          echo "STRIPPED_VERSION=${VERSION#v}" >> "$GITHUB_ENV"
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
+
+      - name: Create and push manifest list
+        working-directory: /tmp/digests
+        run: |
+          # shellcheck disable=SC2046  # intentional word-splitting
+          docker buildx imagetools create \
+            -t docker.io/${{ env.IMAGE }}:${{ env.STRIPPED_VERSION }} \
+            -t docker.io/${{ env.IMAGE }}:latest \
+            $(printf 'docker.io/${{ env.IMAGE }}@sha256:%s ' *)
+
+      - name: Verify manifest
+        run: docker buildx imagetools inspect docker.io/${{ env.IMAGE }}:${{ env.STRIPPED_VERSION }}

@@ -7,6 +7,12 @@
 # handles that, including automatically re-routing after a leader crash.
 #
 # Usage: compose/smoke-test.sh   (run from repo root)
+#
+# DLMDB_SKIP_BUILD=1: reuse whatever image is already loaded under the
+# d-lmdb-server:compose tag instead of building — for CI, which builds one
+# specific platform first (see .github/workflows/docker-release.yml) and
+# wants this script to test exactly that image, not rebuild for the host's
+# native platform.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -27,7 +33,11 @@ cleanup_on_fail() {
 command -v jq >/dev/null || { echo "jq is required (brew install jq)"; exit 1; }
 
 echo "== bringing up 3-node cluster + HAProxy =="
-$COMPOSE up -d --build
+if [ "${DLMDB_SKIP_BUILD:-}" = "1" ]; then
+    $COMPOSE up -d
+else
+    $COMPOSE up -d --build
+fi
 
 echo "== waiting for all 3 nodes to report healthy =="
 for name in node1 node2 node3; do
