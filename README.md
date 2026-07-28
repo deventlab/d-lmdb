@@ -2,37 +2,38 @@
 
 ![status](https://img.shields.io/badge/status-experimental-orange)
 [![CI](https://github.com/deventlab/d-lmdb/actions/workflows/ci.yml/badge.svg)](https://github.com/deventlab/d-lmdb/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/deventlab/d-lmdb/graph/badge.svg)](https://codecov.io/gh/deventlab/d-lmdb)
 ![Static Badge](https://img.shields.io/badge/license-MIT%20%7C%20Apache--2.0-blue)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/deventlab/d-lmdb)
 
-d-lmdb demonstrates one concrete way [d-engine](https://github.com/DEventLab/d-engine) (a Raft consensus library) can add distributed replication to an existing embedded storage engine — LMDB was chosen because it's a well-known, compact embedded key-value store. The broader point: **d-engine can pair with many storage engines and applications to add an optional, replicated write path** — LMDB is just this example.
+## What This Is
 
-This repo ships the same idea two ways — pick one:
+d-lmdb demonstrates one concrete way [d-engine](https://github.com/DEventLab/d-engine) (a Raft consensus library) can add distributed replication to an existing embedded storage engine — LMDB was chosen because it's a well-known, compact embedded key-value store.
+
+The broader point: **d-engine adds an optional replicated write path to storage engines and applications.** — LMDB is one possible example.
 
 ## Choose your path
 
-| | `d-lmdb` (library) | `d-lmdb-server` (service) |
-|---|---|---|
-| You are | writing Rust, embedding the store in your process | running any language, want a standalone service |
-| You get | in-process calls, no network hop | HTTP+JSON over the network, `docker run` |
-| Trade-off | fastest reads/writes, but every replica embeds a Raft node | one network hop, but replicas are decoupled from your app |
+|           | `d-lmdb` (library)                                       | `d-lmdb-server` (service)                         |
+| --------- | -------------------------------------------------------- | ------------------------------------------------- |
+| You are   | writing Rust, embedding the store in your process        | running any language, want a standalone service   |
+| You get   | in-process calls, no HTTP hop                            | HTTP+JSON over the network, standalone deployment |
+| Trade-off | replicated writes add a network round-trip vs plain LMDB | one extra HTTP hop vs embedded `d-lmdb`           |
 
-→ Rust, embedded: [`d-lmdb/README.md`](./d-lmdb/README.md)
-→ HTTP, Docker: [`d-lmdb-server/README.md`](./d-lmdb-server/README.md)
+→ Rust, embedded: [`d-lmdb/README.md`](./d-lmdb/README.md)  
+→ HTTP, standalone: [`d-lmdb-server/README.md`](./d-lmdb-server/README.md)
+
+---
 
 ## What this solves
 
-- **Single point of failure → quorum fault tolerance.** Writes go through Raft; the cluster keeps serving as long as a majority of nodes are up.
-- **Cross-machine strong consistency, one extra dependency.** Multiple nodes see the same linearizable write history — no separate coordination service to run.
-- **Reads stay fast.** Reads bypass Raft and hit local storage directly, in both the embedded and HTTP form.
+- **Replication → High Availability.** d-engine adds an optional replicated write path, turning a single-node embedded store into a quorum-tolerant system.
 
 ## What this doesn't solve
 
-Stated plainly, so expectations are set correctly:
-
-- **Write throughput does not improve — it gets worse.** A local write is one fsync; a replicated write is a network round trip plus a quorum of fsyncs. This trades latency/throughput for availability and consistency.
-- **No sharding.** d-engine replicates data, it does not partition it — every node holds the full dataset.
-- **Still just a key-value store.** No relational modeling or complex queries.
-- **Raft adds real operational surface.** Leader election, membership changes, snapshots, log compaction — none of this exists with plain LMDB.
+- **Write throughput will not improve.** A local LMDB write is one fsync; a d-lmdb write pays a network round-trip plus a quorum fsync — this trades latency and throughput for availability and consistency.
+- **No sharding.** d-engine replicates data, it doesn't partition it — every node stores the full dataset. If your data doesn't fit on one node's LMDB, d-lmdb won't help.
+- **LMDB's own constraints are untouched.** d-lmdb wraps LMDB, it doesn't fix it — map-size limits, single-writer-per-node, and long-lived-reader map growth are all still there.
 
 ## Repository layout
 

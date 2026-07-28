@@ -1,26 +1,11 @@
 # d-lmdb
 
-![status](https://img.shields.io/badge/status-experimental-orange)
-[![CI](https://github.com/deventlab/d-lmdb/actions/workflows/ci.yml/badge.svg)](https://github.com/deventlab/d-lmdb/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/deventlab/d-lmdb/graph/badge.svg)](https://codecov.io/gh/deventlab/d-lmdb)
-![Static Badge](https://img.shields.io/badge/license-MIT%20%7C%20Apache--2.0-blue)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/deventlab/d-lmdb)
-
-> Built to demonstrate d-engine's replication capabilities.
-
-## What This Is
-
-d-lmdb is an implementation that demonstrates one concrete way [d-engine](https://github.com/DEventLab/d-engine) can add distributed replication to an existing embedded storage engine. LMDB was chosen because it is a well-known, compact embedded key-value store.
-
-The broader point this project is meant to demonstrate: **d-engine can be paired with many kinds of storage engines and applications to add an optional, replicated write path** — LMDB is just the example chosen here.
-
-d-lmdb wraps LMDB with Raft consensus. Reads stay local and synchronous. Writes go through Raft and become replicated and strongly consistent. The only dependencies beyond d-engine are LMDB and the small set of crates d-engine itself needs.
-
-d-lmdb aims at distributed _fault tolerance_, not distributed _scaling_. It adds a replicated write path in front of the LMDB you already know — the read path is left untouched.
-
-See the [repo-level README](../README.md#what-this-solves) for what this project solves and doesn't solve — that applies equally to this library and to `d-lmdb-server`.
-
 ---
+
+d-lmdb is for Rust developers who want LMDB as their storage engine, with
+distributed fault tolerance built in. It replicates LMDB across nodes (via
+Raft consensus): reads stay local and synchronous, writes are replicated and
+strongly consistent.
 
 ## Migration from LMDB
 
@@ -43,15 +28,6 @@ Reads are synchronous and can be called from any context.
 db.put(b"user:1", b"alice").await?;
 db.delete(b"user:1").await?;
 ```
-
-## Read Consistency
-
-d-lmdb exposes the tradeoff explicitly:
-
-| Method                  | Consistency  | When to use                                                   |
-| ----------------------- | ------------ | ------------------------------------------------------------- |
-| `get(key)`              | Eventual     | Default — local read, may lag the leader by replication delay |
-| `get_linearizable(key)` | Linearizable | When you need read-your-writes after a concurrent write       |
 
 ## API
 
@@ -95,6 +71,15 @@ db.cluster_info();     // MembershipSnapshot
 db.close().await?;     // graceful shutdown
 ```
 
+## Read Consistency
+
+d-lmdb exposes the tradeoff explicitly:
+
+| Method                  | Consistency  | When to use                                                   |
+| ----------------------- | ------------ | ------------------------------------------------------------- |
+| `get(key)`              | Eventual     | Default — local read, may lag the leader by replication delay |
+| `get_linearizable(key)` | Linearizable | When you need read-your-writes after a concurrent write       |
+
 ## Architecture
 
 d-engine runs **embedded** — no separate server process. Reads bypass consensus entirely and go directly to the local LMDB instance.
@@ -126,19 +111,8 @@ data_dir/
 - Single storage engine: LMDB only, for both Raft log and KV data
 - Embedded mode — runs inside your process, no separate server to operate
 
-## Project Status
+## Failure Behavior
 
-d-lmdb is early-stage and evolving.
-
-The core functionality is implemented and intended for evaluation, experimentation, and community feedback.
-
-It has not yet been extensively validated in production environments, so APIs and internal behavior may evolve before a stable release.
-
-Issues, discussions, forks, and pull requests are highly welcome.
-
-## License
-
-Licensed under either of [Apache License 2.0](LICENSE-APACHE) or [MIT License](LICENSE-MIT) at your option.
-
-This project is built on [d-engine](https://github.com/DEventLab/d-engine) (Apache-2.0 / MIT)
-and [LMDB](https://www.symas.com/lmdb) (OpenLDAP Public License). See [NOTICES](NOTICES) for third-party attributions.
+- If no leader is elected yet, writes block until `wait_ready()` completes or timeout.
+- If the leader is unreachable, `put()`/`delete()` return an error — the caller must retry.
+- Reads never fail due to leader unavailability (they bypass Raft entirely).

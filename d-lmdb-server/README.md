@@ -1,6 +1,12 @@
 # d-lmdb-server
 
-HTTP+JSON server wrapping [d-lmdb](../d-lmdb) over a Raft cluster. Docker-deployable — talk to it over plain HTTP, no Rust required.
+---
+
+d-lmdb-server is for developer who want distributed, LMDB-backed key-value
+storage as a standalone service — no Rust, no embedding, no client library.
+It wraps [d-lmdb](../d-lmdb) behind HTTP+JSON: writes go through Raft
+consensus and are replicated across nodes, reads stay local by default.
+Docker-deployable — talk to it over plain HTTP from any language.
 
 ## Quick Start
 
@@ -49,8 +55,6 @@ curl "localhost:8080/kv/hello?level=linearizable"
 ## Errors
 
 Every non-2xx response is JSON: `{"error": "...", "leader_hint": {...}, "trace_id": "..."}` (`leader_hint`/`trace_id` only present when relevant — extractor-level rejections get normalized into this shape too, never plain text). `400` = your input, `503` = not leader / cluster unavailable, retry; `500` = server-side, look up `trace_id` in server logs for detail. Full classification and rationale: `decisions/015-http-error-classification.md` in `d-engine-product-design`.
-
-**Known limitation**: `leader_hint.address` is only reachable by clients on the same network as the cluster (e.g. other containers on the same docker-compose network) — not usable by an external client connecting through mapped/published ports. Not a primary mechanism regardless — see High Availability below.
 
 ## Config (`config.toml`, see `config.example.toml`)
 
