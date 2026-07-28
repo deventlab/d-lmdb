@@ -12,12 +12,18 @@ fn test_absent_level_defaults_to_eventual() {
 
 #[test]
 fn test_level_eventual() {
-    assert_eq!(parse("level=eventual").unwrap().level, ConsistencyLevel::Eventual);
+    assert_eq!(
+        parse("level=eventual").unwrap().level,
+        ConsistencyLevel::Eventual
+    );
 }
 
 #[test]
 fn test_level_linearizable() {
-    assert_eq!(parse("level=linearizable").unwrap().level, ConsistencyLevel::Linearizable);
+    assert_eq!(
+        parse("level=linearizable").unwrap().level,
+        ConsistencyLevel::Linearizable
+    );
 }
 
 #[test]

@@ -165,7 +165,10 @@ fn test_internal_error_category_storage() {
 
 #[test]
 fn test_internal_error_category_configuration() {
-    assert_eq!(internal_error_category(&Error::Path("x".to_string())), "configuration error");
+    assert_eq!(
+        internal_error_category(&Error::Path("x".to_string())),
+        "configuration error"
+    );
 }
 
 #[test]
@@ -239,7 +242,10 @@ fn test_router() -> axum::Router {
     use axum::routing::get;
 
     axum::Router::new()
-        .route("/plain-text-400", get(|| async { (StatusCode::BAD_REQUEST, "key must not contain '/'") }))
+        .route(
+            "/plain-text-400",
+            get(|| async { (StatusCode::BAD_REQUEST, "key must not contain '/'") }),
+        )
         .route(
             "/already-json-400",
             get(|| async {

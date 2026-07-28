@@ -13,11 +13,11 @@ Docker-deployable — talk to it over plain HTTP from any language.
 **Single node:**
 
 ```bash
-docker build -t d-lmdb-server -f ../Dockerfile ..
+docker pull deventlab/d-lmdb:latest
 cp config.example.toml config.toml
 docker run -d -p 8080:8080 -e CONFIG=/etc/dlmdb/config.toml \
   -v $(pwd)/config.toml:/etc/dlmdb/config.toml:ro -v dlmdb-data:/data \
-  d-lmdb-server
+  deventlab/d-lmdb:latest
 
 curl -X PUT localhost:8080/kv/hello -d world
 curl localhost:8080/kv/hello
@@ -26,7 +26,9 @@ curl localhost:8080/kv/hello
 **3-node HA cluster** (from repo root):
 
 ```bash
-docker compose up -d --build
+docker pull deventlab/d-lmdb:latest
+docker tag deventlab/d-lmdb:latest d-lmdb-server:compose
+docker compose up -d
 curl -X PUT localhost:8080/kv/hello -d world              # via HAProxy, always finds the leader
 curl "localhost:8080/kv/hello?level=linearizable"
 ```

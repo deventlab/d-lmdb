@@ -181,7 +181,9 @@ impl From<d_lmdb::Error> for HttpError {
 /// error string. Exact detail lives in the `trace_id`-tagged log line, not the body.
 fn internal_error_category(err: &d_lmdb::Error) -> &'static str {
     match err {
-        d_lmdb::Error::Lmdb(_) | d_lmdb::Error::Storage(_) | d_lmdb::Error::Io(_) => "storage error",
+        d_lmdb::Error::Lmdb(_) | d_lmdb::Error::Storage(_) | d_lmdb::Error::Io(_) => {
+            "storage error"
+        }
         d_lmdb::Error::Engine(_) => "cluster error",
         d_lmdb::Error::Client(ClientApiError::Business {
             code: ErrorCode::Uncategorized,

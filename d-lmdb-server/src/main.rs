@@ -46,8 +46,8 @@ struct HttpSection {
 
 fn read_http_listen_address(config_path: &Path) -> std::io::Result<SocketAddr> {
     let text = std::fs::read_to_string(config_path)?;
-    let root: RootConfig =
-        toml::from_str(&text).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    let root: RootConfig = toml::from_str(&text)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     Ok(root.http.listen_address)
 }
 
