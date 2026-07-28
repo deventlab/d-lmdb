@@ -13,6 +13,8 @@
 //! Limitation), so they fall through the wildcard into 500 rather than getting dead
 //! match arms.
 
+use std::sync::OnceLock;
+
 use axum::Json;
 use axum::http::HeaderValue;
 use axum::http::StatusCode;
@@ -32,14 +34,54 @@ struct ErrorBody {
     trace_id: Option<String>,
 }
 
-/// Mirrors `d_lmdb::LeaderHint` verbatim (not `{host, port}`): `address` is an
-/// opaque string from Raft config, not guaranteed to be a parseable `SocketAddr`
-/// (could be IPv6, a hostname, etc.) — relaying it as-is avoids parsing we'd have
-/// to get right for formats we don't control.
+/// `d_lmdb::LeaderHint.address` is the leader's Raft peer address (e.g.
+/// `http://node3:9081`) — useless to an HTTP client, which needs the leader's
+/// HTTP port instead. `address` here has the host from the Raft address with
+/// this node's own HTTP port substituted in (see `rewrite_to_http_address`),
+/// not `h.address` relayed verbatim.
 #[derive(Serialize)]
 struct LeaderHintDto {
     leader_id: u32,
     address: String,
+}
+
+/// This node's own `[http] listen_address` port, set once in `http::serve()`.
+/// Read when rewriting a peer's Raft address into an HTTP one — see
+/// `rewrite_to_http_address`.
+static LOCAL_HTTP_PORT: OnceLock<u16> = OnceLock::new();
+
+pub(super) fn set_local_http_port(port: u16) {
+    let _ = LOCAL_HTTP_PORT.set(port);
+}
+
+/// Swaps the Raft port in a peer address for this node's own HTTP port.
+/// Assumes every node in the cluster serves HTTP on the same port (true for
+/// homogeneous deployments — same image/config, different hostnames — which
+/// is what docker-compose/k8s give you). Falls back to the raw Raft address,
+/// unusable as it is, only if this node's own HTTP port was somehow never set.
+///
+/// Known limitation: the rewritten address is only reachable by clients on the
+/// same network as the cluster (e.g. other containers on the same docker-compose
+/// network) — an external client reaching the cluster through published/mapped
+/// ports won't be able to resolve the bare hostname either way. Not the primary
+/// routing path regardless (external LB health-checking `/primary` is — see
+/// `ha-deployment-load-balancing.md`); this only matters for direct-to-node
+/// callers that skip the LB. See decisions doc `leader-hint-http-address-mismatch.md`.
+fn rewrite_to_http_address(raft_address: &str) -> String {
+    match LOCAL_HTTP_PORT.get() {
+        Some(port) => replace_port(raft_address, *port),
+        None => raft_address.to_string(),
+    }
+}
+
+/// Pure string rewrite: replaces whatever comes after the last `:` with `port`.
+/// Keeps any scheme prefix intact (`http://node3:9081` -> `http://node3:8080`).
+fn replace_port(
+    address: &str,
+    port: u16,
+) -> String {
+    let host = address.rsplit_once(':').map_or(address, |(host, _)| host);
+    format!("{host}:{port}")
 }
 
 pub(super) struct HttpError {
@@ -93,7 +135,7 @@ impl From<d_lmdb::Error> for HttpError {
                     error: message.clone(),
                     leader_hint: leader_hint.as_ref().map(|h| LeaderHintDto {
                         leader_id: h.leader_id,
-                        address: h.address.clone(),
+                        address: rewrite_to_http_address(&h.address),
                     }),
                     trace_id: None,
                 },

@@ -9,6 +9,7 @@ use d_lmdb::LeaderHint;
 use super::HttpError;
 use super::internal_error_category;
 use super::normalize_error_body;
+use super::replace_port;
 use super::retry_after_ms_to_secs;
 
 async fn body_json(resp: axum::response::Response) -> serde_json::Value {
@@ -181,6 +182,29 @@ fn test_internal_error_category_fallback_is_internal_error() {
         supported_versions: None,
     });
     assert_eq!(internal_error_category(&err), "internal error");
+}
+
+// ── replace_port ─────────────────────────────────────────────────────────────
+//
+// Pure function, no LOCAL_HTTP_PORT global involved — the leader_hint tests
+// above rely on that global being unset for the whole test binary (no test
+// calls set_local_http_port, so fallback is deterministic); these test the
+// actual rewrite logic in isolation instead.
+
+#[test]
+fn test_replace_port_keeps_scheme_prefix() {
+    assert_eq!(replace_port("http://node3:9081", 8080), "http://node3:8080");
+}
+
+#[test]
+fn test_replace_port_no_scheme() {
+    assert_eq!(replace_port("10.0.0.2:9081", 8080), "10.0.0.2:8080");
+}
+
+#[test]
+fn test_replace_port_no_colon_appends_port() {
+    // No `:` to split on at all — treat the whole string as the host.
+    assert_eq!(replace_port("localhost", 8080), "localhost:8080");
 }
 
 // ── retry_after_ms_to_secs ───────────────────────────────────────────────────

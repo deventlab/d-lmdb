@@ -22,6 +22,7 @@ pub async fn serve(
     addr: SocketAddr,
 ) -> std::io::Result<()> {
     let body_limit = db.max_value_bytes() + BODY_LIMIT_OVERHEAD_BYTES;
+    error::set_local_http_port(addr.port());
 
     let app = Router::new().route("/kv/{key}", kv::route());
     let app = health::add_routes(app);
