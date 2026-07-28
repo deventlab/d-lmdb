@@ -27,6 +27,7 @@ FROM debian:bookworm-slim AS runtime
 # ownership — see docker-entrypoint.sh. ca-certificates: TLS roots, needed if
 # the Raft cluster ever talks over TLS.
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends gosu ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 

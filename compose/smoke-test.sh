@@ -28,6 +28,7 @@ fail() { echo "FAIL: $1"; cleanup_on_fail; exit 1; }
 cleanup_on_fail() {
     echo "--- container logs on failure ---"
     $COMPOSE logs --tail=50
+    $COMPOSE down -v || true
 }
 
 command -v jq >/dev/null || { echo "jq is required (brew install jq)"; exit 1; }

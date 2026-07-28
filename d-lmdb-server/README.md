@@ -19,6 +19,7 @@ docker run -d -p 8080:8080 -e CONFIG=/etc/dlmdb/config.toml \
   -v $(pwd)/config.toml:/etc/dlmdb/config.toml:ro -v dlmdb-data:/data \
   deventlab/d-lmdb:latest
 
+sleep 3
 curl -X PUT localhost:8080/kv/hello -d world
 curl localhost:8080/kv/hello
 ```
@@ -28,7 +29,9 @@ curl localhost:8080/kv/hello
 ```bash
 docker pull deventlab/d-lmdb:latest
 docker tag deventlab/d-lmdb:latest d-lmdb-server:compose
+docker compose down -v 2>/dev/null   # clean up any previous run
 docker compose up -d
+sleep 10   # wait for leader election + HAProxy health checks
 curl -X PUT localhost:8080/kv/hello -d world              # via HAProxy, always finds the leader
 curl "localhost:8080/kv/hello?level=linearizable"
 ```

@@ -32,9 +32,9 @@ db.delete(b"user:1").await?;
 ## API
 
 ```rust
-// Open a node (single-node or cluster, depending on config)
-let db = DLmdb::open(DLmdbConfig::new("./data")).await?;
-let db = DLmdb::open_from_file("config.toml").await?;   // multi-node: config declares peers
+// Open a node
+let db = DLmdb::open("./data").await?;                   // single-node: just a data directory
+let db = DLmdb::open_from_file("config.toml").await?;    // multi-node: config declares peers
 db.wait_ready(Duration::from_secs(5)).await?;             // block until a leader is elected
 
 // Reads — sync, no await, bypass Raft entirely

@@ -52,19 +52,20 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
 
-      - name: Push by digest (smoke test passed — cached layers, no rebuild)
+      - name: Push tested image by digest (no rebuild)
         id: push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: ${{ matrix.platform }}
-          outputs: type=image,name=docker.io/${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+        run: |
+          TARGET="docker.io/${{ env.IMAGE }}:${{ github.sha }}"
+          docker tag d-lmdb-server:compose "$TARGET"
+          docker push "$TARGET"
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$TARGET" | grep -o 'sha256:[a-f0-9]\{64\}')
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Export digest
         run: |
           mkdir -p /tmp/digests
-          digest="${{ steps.push.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
+          DIGEST="${{ steps.push.outputs.digest }}"
+          touch "/tmp/digests/${DIGEST#sha256:}"
 
       - name: Upload digest
         uses: actions/upload-artifact@v4
@@ -81,9 +82,10 @@ jobs:
     needs: build-test-push
     steps:
       - name: Strip 'v' prefix from release tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          VERSION=${{ github.event.release.tag_name }}
-          echo "STRIPPED_VERSION=${VERSION#v}" >> "$GITHUB_ENV"
+          printf 'STRIPPED_VERSION=%s\n' "${RELEASE_TAG#v}" >> "$GITHUB_ENV"
 
       - name: Download digests
         uses: actions/download-artifact@v4
@@ -103,12 +105,15 @@ jobs:
 
       - name: Create and push manifest list
         working-directory: /tmp/digests
+        env:
+          IMAGE: ${{ env.IMAGE }}
         run: |
-          # shellcheck disable=SC2046  # intentional word-splitting
           docker buildx imagetools create \
-            -t docker.io/${{ env.IMAGE }}:${{ env.STRIPPED_VERSION }} \
-            -t docker.io/${{ env.IMAGE }}:latest \
-            $(printf 'docker.io/${{ env.IMAGE }}@sha256:%s ' *)
+            -t "docker.io/${IMAGE}:${STRIPPED_VERSION}" \
+            -t "docker.io/${IMAGE}:latest" \
+            $(printf 'docker.io/%s@sha256:%s ' "${IMAGE}" *)
 
       - name: Verify manifest
-        run: docker buildx imagetools inspect docker.io/${{ env.IMAGE }}:${{ env.STRIPPED_VERSION }}
+        env:
+          IMAGE: ${{ env.IMAGE }}
+        run: docker buildx imagetools inspect "docker.io/${IMAGE}:${STRIPPED_VERSION}"
