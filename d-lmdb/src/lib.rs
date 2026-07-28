@@ -37,6 +37,7 @@ mod time;
 mod wire;
 
 pub use d_engine::BatchOp;
+pub use d_engine::LeaderInfo;
 pub use db::DLmdb;
 pub use error::Error;
 pub use error::Result;
