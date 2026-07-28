@@ -16,24 +16,9 @@ The broader point this project is meant to demonstrate: **d-engine can be paired
 
 d-lmdb wraps LMDB with Raft consensus. Reads stay local and synchronous. Writes go through Raft and become replicated and strongly consistent. The only dependencies beyond d-engine are LMDB and the small set of crates d-engine itself needs.
 
-d-lmdb aims at distributed _fault tolerance_, not distributed _scaling_. It adds a replicated write path in front of the LMDB you already know — the read path is left untouched. See [What d-lmdb Doesn't Solve](#what-d-lmdb-doesnt-solve) for where this stops being useful.
+d-lmdb aims at distributed _fault tolerance_, not distributed _scaling_. It adds a replicated write path in front of the LMDB you already know — the read path is left untouched.
 
----
-
-## What d-lmdb Solves
-
-- **Single point of failure → quorum fault tolerance.** Writes go through Raft; the cluster can keep serving as long as a majority of nodes are up. Plain LMDB has no replica — a lost disk or crashed process can mean lost data.
-- **Cross-machine strong consistency, one additional dependency.** Multiple nodes see the same linearizable write history, with d-engine as the only extra piece — no separate coordination service to run.
-- **LMDB's read path stays untouched.** `get()` bypasses Raft entirely and reads the local LMDB file directly — reads are not slowed down by the replication layer.
-
-## What d-lmdb Doesn't Solve
-
-Stating these plainly up front, so expectations are set correctly:
-
-- **Write throughput does not improve — it gets worse.** A local LMDB write is one fsync. A d-lmdb write is a network round trip plus a quorum of fsyncs. This trades write latency and throughput for availability and consistency.
-- **No sharding.** d-engine replicates data, it does not partition it. Every node holds the full dataset — if your data does not fit on one node's LMDB, d-lmdb does not help.
-- **Still just a key-value store.** Adding Raft does not add relational modeling or complex queries — the surface is the same get/put/scan LMDB already had.
-- **Raft adds real operational surface.** Leader election, membership changes, snapshots, log compaction — none of this exists with plain LMDB. Reads keeping their performance does not mean operations stay as simple as LMDB alone.
+See the [repo-level README](../README.md#what-this-solves) for what this project solves and doesn't solve — that applies equally to this library and to `d-lmdb-server`.
 
 ---
 
