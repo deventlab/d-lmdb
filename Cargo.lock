@@ -449,7 +449,7 @@ dependencies = [
 [[package]]
 name = "d-engine"
 version = "0.2.4"
-source = "git+https://github.com/DEventLab/d-engine?branch=fix%2F425-leader-hint#f7932084d1c7fc9e836b8ba4367d8d45f0ffff29"
+source = "git+https://github.com/DEventLab/d-engine?branch=fix%2F425-leader-hint#4a192e114b3833c805ac6e301739c9b1a81e9818"
 dependencies = [
  "d-engine-server",
 ]
@@ -457,7 +457,7 @@ dependencies = [
 [[package]]
 name = "d-engine-core"
 version = "0.2.4"
-source = "git+https://github.com/DEventLab/d-engine?branch=fix%2F425-leader-hint#f7932084d1c7fc9e836b8ba4367d8d45f0ffff29"
+source = "git+https://github.com/DEventLab/d-engine?branch=fix%2F425-leader-hint#4a192e114b3833c805ac6e301739c9b1a81e9818"
 dependencies = [
  "astral-tokio-tar",
  "async-compression",
@@ -494,7 +494,7 @@ dependencies = [
 [[package]]
 name = "d-engine-proto"
 version = "0.2.4"
-source = "git+https://github.com/DEventLab/d-engine?branch=fix%2F425-leader-hint#f7932084d1c7fc9e836b8ba4367d8d45f0ffff29"
+source = "git+https://github.com/DEventLab/d-engine?branch=fix%2F425-leader-hint#4a192e114b3833c805ac6e301739c9b1a81e9818"
 dependencies = [
  "bytes",
  "prost",
@@ -508,7 +508,7 @@ dependencies = [
 [[package]]
 name = "d-engine-server"
 version = "0.2.4"
-source = "git+https://github.com/DEventLab/d-engine?branch=fix%2F425-leader-hint#f7932084d1c7fc9e836b8ba4367d8d45f0ffff29"
+source = "git+https://github.com/DEventLab/d-engine?branch=fix%2F425-leader-hint#4a192e114b3833c805ac6e301739c9b1a81e9818"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -567,9 +567,14 @@ dependencies = [
  "clap",
  "d-lmdb",
  "serde",
+ "serde_json",
+ "serde_urlencoded",
  "tokio",
  "toml",
+ "tower",
  "tower-http",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

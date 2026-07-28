@@ -36,3 +36,7 @@ target
 # Workspace now includes d-lmdb-server, a deployable binary — commit Cargo.lock
 # for reproducible builds. (d-lmdb the library still doesn't need one committed
 # on its own, but Cargo workspaces share a single lockfile at the root.)
+
+# Developer's real d-lmdb-server config, copied from config.example.toml — may
+# contain machine-local paths, gets regenerated per-developer, never committed.
+/d-lmdb-server/config.toml

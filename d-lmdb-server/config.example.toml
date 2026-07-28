@@ -1,0 +1,12 @@
+[cluster]
+node_id = 1
+listen_address = "0.0.0.0:9081"
+db_root_dir = "./data"
+log_dir = "./logs"
+
+[lmdb]
+data_dir = "./data"
+map_size_gb = 10
+
+[http]
+listen_address = "0.0.0.0:8080"
