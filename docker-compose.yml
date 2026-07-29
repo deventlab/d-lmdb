@@ -1,0 +1,50 @@
+services:
+  node1:
+    build: .
+    image: d-lmdb-server:compose
+    hostname: node1
+    environment:
+      CONFIG: /etc/dlmdb/config.toml
+    volumes:
+      - ./compose/node1/config.toml:/etc/dlmdb/config.toml:ro
+      - node1-data:/data
+    ports:
+      - "18081:8080"
+
+  node2:
+    image: d-lmdb-server:compose
+    hostname: node2
+    environment:
+      CONFIG: /etc/dlmdb/config.toml
+    volumes:
+      - ./compose/node2/config.toml:/etc/dlmdb/config.toml:ro
+      - node2-data:/data
+    ports:
+      - "18082:8080"
+
+  node3:
+    image: d-lmdb-server:compose
+    hostname: node3
+    environment:
+      CONFIG: /etc/dlmdb/config.toml
+    volumes:
+      - ./compose/node3/config.toml:/etc/dlmdb/config.toml:ro
+      - node3-data:/data
+    ports:
+      - "18083:8080"
+
+  lb:
+    image: haproxy:2.9-alpine
+    volumes:
+      - ./compose/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    ports:
+      - "8080:80"
+    depends_on:
+      - node1
+      - node2
+      - node3
+
+volumes:
+  node1-data:
+  node2-data:
+  node3-data:

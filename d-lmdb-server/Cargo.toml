@@ -1,0 +1,26 @@
+[package]
+name = "d-lmdb-server"
+version = "0.1.0"
+edition = "2024"
+description = "Standalone HTTP server / Docker entrypoint for d-lmdb"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/DEventLab/d-lmdb"
+rust-version = "1.89"
+
+[dependencies]
+d-lmdb = { path = "../d-lmdb", version = "0.1" }
+axum = "0.8"
+bytes = "1"
+serde = { version = "1", features = ["derive"] }
+tower-http = { version = "0.6", features = ["limit"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
+clap = { version = "4", features = ["derive", "env"] }
+toml = "0.8"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+serde_json = "1"
+serde_urlencoded = "0.7"
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }

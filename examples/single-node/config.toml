@@ -7,4 +7,4 @@ log_dir = "./logs"
 
 [lmdb]
 data_dir = "./data"
-lmdb_map_size = 100
+map_size_gb = 10

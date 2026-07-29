@@ -118,7 +118,7 @@ impl DLmdb {
         &self,
         key: impl AsRef<[u8]>,
     ) -> Result<Option<Bytes>> {
-        self.get_live(key.as_ref())
+        self.fetch_local(key.as_ref())
     }
 
     /// Eventual read. Not guaranteed to reflect the latest committed write.
@@ -126,7 +126,7 @@ impl DLmdb {
         &self,
         key: impl AsRef<[u8]>,
     ) -> Result<bool> {
-        Ok(self.get_live(key.as_ref())?.is_some())
+        Ok(self.fetch_local(key.as_ref())?.is_some())
     }
 
     /// Eventual read. Not guaranteed to reflect the latest committed write.
@@ -134,35 +134,34 @@ impl DLmdb {
         &self,
         keys: &[K],
     ) -> Result<Vec<Option<Bytes>>> {
-        keys.iter().map(|k| self.get_live(k.as_ref())).collect()
+        keys.iter().map(|k| self.fetch_local(k.as_ref())).collect()
     }
 
-    /// Reads the raw value from the state machine (byte-transparent) and applies
-    /// TTL semantics on top: decode the wire envelope, treat an expired TTL value
-    /// as absent, and physically clean up expired entries synchronously
-    /// (local-only — see `LmdbStateMachine::delete_local`; safe without Raft
-    /// because expiry is decided by the already-replicated `expires_at`).
-    fn get_live(
+    /// Raw bytes from the local state machine, then `decode_and_reap`.
+    fn fetch_local(
         &self,
         key: &[u8],
     ) -> Result<Option<Bytes>> {
-        let Some(raw) = self.state_machine.get(key)? else {
+        let raw = self.state_machine.get(key)?;
+        self.decode_and_reap(key, raw)
+    }
+
+    /// Shared by all read paths: decode + apply TTL. Local delete-on-expiry is
+    /// safe without Raft since `expires_at` is already replicated.
+    fn decode_and_reap(
+        &self,
+        key: &[u8],
+        raw: Option<Bytes>,
+    ) -> Result<Option<Bytes>> {
+        let Some(raw) = raw else {
             return Ok(None);
         };
-        match Value::decode(&raw) {
-            Ok(Value::Raw(payload)) => Ok(Some(Bytes::copy_from_slice(payload))),
-            Ok(Value::Ttl {
-                expires_at,
-                payload,
-            }) => {
-                if expires_at <= unix_now_secs() {
-                    self.state_machine.delete_local(key)?;
-                    Ok(None)
-                } else {
-                    Ok(Some(Bytes::copy_from_slice(payload)))
-                }
+        match decode_live_value(&raw, unix_now_secs())? {
+            DecodedValue::Present(payload) => Ok(Some(payload)),
+            DecodedValue::Expired => {
+                self.state_machine.delete_local(key)?;
+                Ok(None)
             }
-            Err(_) => Err(Error::Storage("corrupt value: invalid tag byte".into())),
         }
     }
 
@@ -185,7 +184,7 @@ impl DLmdb {
         &self,
         limit: Option<usize>,
     ) -> Result<ScanResult> {
-        Ok(self.state_machine.scan_all(limit, Some(ttl_filter))?)
+        Ok(self.state_machine.scan_all(limit, Some(decode_for_scan))?)
     }
 
     /// Eventual read. Not guaranteed to reflect the latest committed write.
@@ -203,7 +202,7 @@ impl DLmdb {
             prefix.as_ref(),
             after,
             limit,
-            Some(ttl_filter),
+            Some(decode_for_scan),
         )?)
     }
 
@@ -221,7 +220,7 @@ impl DLmdb {
             start.as_ref(),
             Some(end.as_ref()),
             limit,
-            Some(ttl_filter),
+            Some(decode_for_scan),
         )?)
     }
 
@@ -239,7 +238,7 @@ impl DLmdb {
             start.as_ref(),
             end.as_ref(),
             limit,
-            Some(ttl_filter),
+            Some(decode_for_scan),
         )?)
     }
 
@@ -250,7 +249,22 @@ impl DLmdb {
         &self,
         key: impl AsRef<[u8]>,
     ) -> Result<Option<Bytes>> {
-        Ok(self.inner.client().get_linearizable(key).await?)
+        let key = key.as_ref();
+        let raw = self.inner.client().get_linearizable(key).await?;
+        self.decode_and_reap(key, raw)
+    }
+
+    // ---- async lease read: leader-lease optimized, still strongly consistent ----
+
+    /// Lease read. Same guarantee as `get_linearizable`, faster when the leader's
+    /// lease is valid. Lease duration is a d-engine startup config, not d-lmdb's.
+    pub async fn get_lease(
+        &self,
+        key: impl AsRef<[u8]>,
+    ) -> Result<Option<Bytes>> {
+        let key = key.as_ref();
+        let raw = self.inner.client().get_lease(key).await?;
+        self.decode_and_reap(key, raw)
     }
 
     // ---- async writes: Raft consensus ---------------------------------------
@@ -359,10 +373,53 @@ impl DLmdb {
         self.inner.watch_membership().borrow().clone()
     }
 
+    /// The configured max value size in bytes. Exposed so callers building a
+    /// layer on top (e.g. an HTTP request body limit) can reuse this instead
+    /// of duplicating it as a separate config value.
+    pub fn max_value_bytes(&self) -> usize {
+        self.max_value_bytes
+    }
+
     /// Gracefully stop the node.
     pub async fn close(self) -> Result<()> {
         self.inner.stop().await?;
         Ok(())
+    }
+}
+
+// ---- live-read decode -----------------------------------------------------------
+
+/// Outcome of decoding a stored value against the current time.
+#[derive(Debug, PartialEq, Eq)]
+enum DecodedValue {
+    /// Present and live: payload with the wire envelope stripped.
+    Present(Bytes),
+    /// Present in storage but past its TTL — logically absent.
+    Expired,
+}
+
+/// Decodes a raw stored value and applies TTL semantics. Pure — no I/O.
+///
+/// Note: expired entries found via `decode_for_scan` (scan path) are NOT
+/// physically reaped, unlike point reads via `decode_and_reap` — scans run
+/// on a read-only LMDB txn and structurally cannot delete.
+fn decode_live_value(
+    raw: &[u8],
+    now_secs: u64,
+) -> Result<DecodedValue> {
+    match Value::decode(raw) {
+        Ok(Value::Raw(payload)) => Ok(DecodedValue::Present(Bytes::copy_from_slice(payload))),
+        Ok(Value::Ttl {
+            expires_at,
+            payload,
+        }) => {
+            if expires_at <= now_secs {
+                Ok(DecodedValue::Expired)
+            } else {
+                Ok(DecodedValue::Present(Bytes::copy_from_slice(payload)))
+            }
+        }
+        Err(_) => Err(Error::Storage("corrupt value: invalid tag byte".into())),
     }
 }
 
@@ -373,7 +430,7 @@ impl DLmdb {
 /// a "tag byte" or "expires_at" is. `None` drops the entry (expired, or an
 /// unrecognized/corrupt tag); `Some(payload)` keeps it, already stripped of
 /// the wire envelope.
-fn ttl_filter(raw: &[u8]) -> Option<Vec<u8>> {
+fn decode_for_scan(raw: &[u8]) -> Option<Vec<u8>> {
     match Value::decode(raw) {
         Ok(Value::Raw(payload)) => Some(payload.to_vec()),
         Ok(Value::Ttl {

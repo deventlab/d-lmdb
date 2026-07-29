@@ -1,0 +1,14 @@
+target/
+.git/
+.zed/
+.DS_Store
+data/
+db/
+logs/
+*.mdb
+d-lmdb-server/config.toml
+
+# The rust:1.89-slim-bookworm base image already IS the pinned version — this
+# file's only effect inside the build is making rustup fetch clippy/rustfmt
+# (unused for `cargo build`) on every build.
+rust-toolchain.toml
