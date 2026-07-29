@@ -18,8 +18,8 @@ Run it as a standalone service and talk to it over plain HTTP from any language.
 ### Single node
 
 ```bash
-docker rm -f dlmdb 2>/dev/null   # clean up from a previous run
-docker run -d --name dlmdb -p 8080:8080 -v dlmdb-data:/data deventlab/d-lmdb
+docker rm -f d-lmdb 2>/dev/null   # clean up from a previous run
+docker run -d --name d-lmdb -p 8080:8080 -v d-lmdb-data:/data deventlab/d-lmdb
 sleep 3                            # wait for bootstrap
 curl -s -o /dev/null -w 'PUT: %{http_code}\n' -X PUT localhost:8080/kv/hello -d world
 # PUT: 204

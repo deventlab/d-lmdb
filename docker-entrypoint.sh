@@ -23,7 +23,7 @@ fi
 
 # Inject --config unless already provided via docker run args.
 case " $* " in
-    *" --config "*) ;;
+    *" --config "*|*" --config="*) ;;
     *) set -- "$@" --config "$CONFIG_FILE" ;;
 esac
 

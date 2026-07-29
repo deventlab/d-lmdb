@@ -257,33 +257,33 @@ docker-verify-remote: docker-verify-pull
 docker-verify-build:
 	@docker info >/dev/null 2>&1 || { echo "WARN: Docker not available — skipping"; exit 0; }; \
 	docker build -t $(DOCKER_LOCAL_TAG) . && \
-	docker rm -f dlmdb-verify 2>/dev/null || true; \
-	docker volume rm dlmdb-verify-data 2>/dev/null || true; \
-	docker run -d --name dlmdb-verify -p 18080:8080 \
+	docker rm -f d-lmdb-verify 2>/dev/null || true; \
+	docker volume rm d-lmdb-verify-data 2>/dev/null || true; \
+	docker run -d --name d-lmdb-verify -p 18080:8080 \
 		-e CONFIG=/etc/dlmdb/config.toml \
 		-v $(PWD)/d-lmdb-server/config.example.toml:/etc/dlmdb/config.toml:ro \
-		-v dlmdb-verify-data:/data $(DOCKER_LOCAL_TAG) && \
+		-v d-lmdb-verify-data:/data $(DOCKER_LOCAL_TAG) && \
 	sleep 3 && \
-	curl -s -o /dev/null -w 'PUT: %{http_code}\n' -X PUT localhost:18080/kv/hello -d world && \
+	curl -sS --fail -o /dev/null -w 'PUT: %{http_code}\n' -X PUT localhost:18080/kv/hello -d world && \
 	curl -s -w '\n' localhost:18080/kv/hello; \
-	docker rm -f dlmdb-verify; \
-	docker volume rm dlmdb-verify-data
+	docker rm -f d-lmdb-verify; \
+	docker volume rm d-lmdb-verify-data
 
 # Internal: pull remote + single-node test
 docker-verify-pull:
 	@docker info >/dev/null 2>&1 || { echo "WARN: Docker not available — skipping"; exit 0; }; \
 	docker pull $(DOCKER_REMOTE_TAG) && \
-	docker rm -f dlmdb-verify 2>/dev/null || true; \
-	docker volume rm dlmdb-verify-data 2>/dev/null || true; \
-	docker run -d --name dlmdb-verify -p 18080:8080 \
+	docker rm -f d-lmdb-verify 2>/dev/null || true; \
+	docker volume rm d-lmdb-verify-data 2>/dev/null || true; \
+	docker run -d --name d-lmdb-verify -p 18080:8080 \
 		-e CONFIG=/etc/dlmdb/config.toml \
 		-v $(PWD)/d-lmdb-server/config.example.toml:/etc/dlmdb/config.toml:ro \
-		-v dlmdb-verify-data:/data $(DOCKER_REMOTE_TAG) && \
+		-v d-lmdb-verify-data:/data $(DOCKER_REMOTE_TAG) && \
 	sleep 3 && \
 	curl -s -o /dev/null -w 'PUT: %{http_code}\n' -X PUT localhost:18080/kv/hello -d world && \
-	curl -s -w '\n' localhost:18080/kv/hello; \
-	docker rm -f dlmdb-verify; \
-	docker volume rm dlmdb-verify-data
+	curl -sS --fail localhost:18080/kv/hello | grep -qx world; \
+	docker rm -f d-lmdb-verify; \
+	docker volume rm d-lmdb-verify-data
 
 
 ## Build local image + fail if Medium+ CVEs exist
