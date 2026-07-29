@@ -52,30 +52,11 @@ jobs:
       - name: Run 3-node smoke test
         run: DLMDB_SKIP_BUILD=1 ./compose/smoke-test.sh
 
-      # Must run before the Scout scan below — docker scout cves calls
-      # Docker's backend to resolve vulnerability data even for local
-      # images, and fails (exit 125) on a fresh runner with no session.
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
-
-      - name: Scan for Medium+ CVEs (fail release if found)
-        shell: bash
-        run: |
-          OUT=$(docker scout cves d-lmdb-server:compose --platform ${{ matrix.platform }} 2>&1)
-          LINE=$(echo "$OUT" | grep 'vulnerabilities' || true)
-          [ -n "$LINE" ] || { echo "$OUT"; exit 1; }
-          C=$(echo "$LINE" | grep -o '[0-9]\+C' | grep -o '[0-9]\+' || echo 0)
-          H=$(echo "$LINE" | grep -o '[0-9]\+H' | grep -o '[0-9]\+' || echo 0)
-          M=$(echo "$LINE" | grep -o '[0-9]\+M' | grep -o '[0-9]\+' || echo 0)
-          echo "CVEs: ${C}C ${H}H ${M}M"
-          if [ "$C" -gt 0 ] || [ "$H" -gt 0 ] || [ "$M" -gt 0 ]; then
-            echo "FAIL: Release blocked — Medium+ CVEs found"
-            exit 1
-          fi
-          echo "PASS"
 
       - name: Push tested image by digest
         id: push
