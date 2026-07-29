@@ -1,7 +1,5 @@
 //! Maps `d_lmdb::Error` to an HTTP response.
 //!
-//! Classification: `d-engine-product-design/decisions/015-http-error-classification.md`.
-//!
 //! | Status | Trigger |
 //! |---|---|
 //! | 400 | `KeyTooLarge` / `ValueTooLarge` / `Business{InvalidRequest}` |

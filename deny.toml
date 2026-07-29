@@ -39,7 +39,7 @@ skip = [
     { crate = "windows-sys@0.52.0", reason = "transitive dep of ring 0.17 and socket2 0.5 (TLS stack); no upgrade path from ring/rustls" },
     { crate = "socket2@0.5.10", reason = "tonic 0.13 pins socket2 0.5 internally" },
     { crate = "rand_core@0.6.4", reason = "heed's lmdb-master-sys build-dependency chain (doxygen-rs -> phf -> rand 0.8); build-time only, not shipped in binary, upstream heed's choice" },
-    { crate = "rand@0.8.6", reason = "same heed/lmdb-master-sys build-dependency chain as rand_core@0.6.4" },
+    { crate = "rand@0.8", reason = "same heed/lmdb-master-sys build-dependency chain as rand_core@0.6.4" },
     # Same as d-engine's own deny.toml — d-lmdb pulls these transitively via d-engine.
     { crate = "getrandom@0.2.17", reason = "ring 0.17 pins getrandom 0.2.x, no upgrade path" },
     { crate = "getrandom@0.3.4", reason = "rand_core 0.9 pins getrandom 0.3.x" },

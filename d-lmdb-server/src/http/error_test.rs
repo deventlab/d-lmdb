@@ -106,8 +106,7 @@ async fn test_cluster_unavailable_maps_to_503_without_leader_hint() {
 
 #[tokio::test]
 async fn test_term_outdated_maps_to_503() {
-    // decisions/015: TermOutdated means the leader just stepped down mid-write —
-    // the client should retry, this is not an unactionable 500.
+    // TermOutdated: leader stepped down mid-write — client should retry, not a 500.
     let err = business(ErrorCode::TermOutdated, "stale term error");
     let http_err: HttpError = err.into();
     assert_eq!(http_err.status, StatusCode::SERVICE_UNAVAILABLE);
@@ -125,8 +124,7 @@ async fn test_propose_failed_and_retry_required_map_to_503() {
 
 #[tokio::test]
 async fn test_unmapped_error_falls_back_to_500_with_trace_id() {
-    // decisions/015 Known Limitation: StaleOperation/RateLimited have no real
-    // construction path via EmbeddedEngine — they deliberately fall through here.
+    // StaleOperation/RateLimited have no real construction path via EmbeddedEngine — they deliberately fall through here.
     let err = business(ErrorCode::StaleOperation, "stale operation");
     let http_err: HttpError = err.into();
     assert_eq!(http_err.status, StatusCode::INTERNAL_SERVER_ERROR);

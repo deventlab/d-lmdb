@@ -21,16 +21,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.89.0"
           components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
 
       - name: Check Formatting
         run: cargo fmt --all -- --check
@@ -42,8 +45,6 @@ jobs:
     name: Test and Collect Coverage
     runs-on: ubuntu-latest
     needs: lint
-    permissions:
-      contents: read
     env:
       CI: 1
     steps:
@@ -57,7 +58,7 @@ jobs:
           toolchain: "1.89.0"
           components: llvm-tools-preview
 
-      - name: Cache using Swatinem/rust-cache
+      - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
       - name: Install system dependencies
@@ -66,9 +67,6 @@ jobs:
           sudo apt-get install -y protobuf-compiler
 
       - name: Install cargo tools
-        # Versions pinned to match Makefile's install-tools target — an
-        # unpinned `cargo install` grabs the latest release, which can
-        # require a newer rustc than the toolchain pinned above (1.89.0).
         run: |
           cargo install cargo-nextest --locked --version 0.9.114
           cargo install cargo-llvm-cov --locked --version 0.8.7
@@ -80,6 +78,7 @@ jobs:
         run: cargo test --doc --all-features
 
       - name: Upload coverage to Codecov
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
