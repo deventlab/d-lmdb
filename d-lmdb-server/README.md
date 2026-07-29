@@ -23,7 +23,7 @@ docker run -d --name dlmdb -p 8080:8080 -v dlmdb-data:/data deventlab/d-lmdb
 sleep 3                            # wait for bootstrap
 curl -s -o /dev/null -w 'PUT: %{http_code}\n' -X PUT localhost:8080/kv/hello -d world
 # PUT: 204
-curl localhost:8080/kv/hello
+curl "localhost:8080/kv/hello"
 # world
 ```
 
@@ -53,9 +53,9 @@ curl -s -o /dev/null -w 'node1: %{http_code}\n' localhost:18081/primary
 curl -s -o /dev/null -w 'node2: %{http_code}\n' localhost:18082/primary
 curl -s -o /dev/null -w 'node3: %{http_code}\n' localhost:18083/primary
 
-# Write and read through HAProxy (always routes to the leader)
+# Write and read through HAProxy (linearizable — avoids stale follower)
 curl -s -o /dev/null -w 'PUT: %{http_code}\n' -X PUT localhost:8080/kv/hello -d world
-curl localhost:8080/kv/hello
+curl "localhost:8080/kv/hello?level=linearizable"
 ```
 
 **See it survive a leader crash:**
@@ -64,7 +64,7 @@ curl localhost:8080/kv/hello
 docker compose kill -s KILL node1   # replace with whichever node is leader
 sleep 5
 curl -s -o /dev/null -w 'PUT: %{http_code}\n' -X PUT localhost:8080/kv/post-failover -d alive
-curl localhost:8080/kv/post-failover
+curl "localhost:8080/kv/post-failover?level=linearizable"
 # alive — client never had to know anything changed
 ```
 
