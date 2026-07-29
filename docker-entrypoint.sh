@@ -1,13 +1,15 @@
 #!/bin/sh
-# Runs as root on container start so it can fix ownership of a bind-mounted
-# /data whose host-side UID/GID may not match appuser's fixed 1000:1000 —
-# then drops privileges and re-execs itself, so the real server process never
-# runs as root.
+# Fix ownership of bind-mounted /data, then drop to appuser via setpriv.
 set -e
 
 if [ "$(id -u)" = "0" ]; then
-    chown -R appuser:appuser /data
-    exec gosu appuser "$0" "$@"
+    # Only chown if the mount point isn't already owned by appuser.
+    # Unconditional chown -R gets expensive as LMDB data grows, eating into
+    # the HEALTHCHECK start-period budget (measured at ~863ms on cold start).
+    if [ "$(stat -c '%u:%g' /data 2>/dev/null)" != "1000:1000" ]; then
+        chown -R appuser:appuser /data
+    fi
+    exec setpriv --reuid=appuser --regid=appuser --init-groups "$0" "$@"
 fi
 
 exec "$@"

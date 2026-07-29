@@ -31,6 +31,11 @@ CARGO_DENY_VERSION := 0.20.2
 # toolchain pinned in rust-toolchain.toml (1.89.0).
 CARGO_NEXTEST_VERSION := 0.9.114
 
+# docker image
+DOCKER_LOCAL_TAG ?= d-lmdb-server:local
+DOCKER_REMOTE_TAG ?= deventlab/d-lmdb:latest
+COMPOSE_TAG ?= d-lmdb-server:compose
+
 RED := \033[0;31m
 GREEN := \033[0;32m
 YELLOW := \033[1;33m
@@ -146,7 +151,7 @@ build-release: check
 # ============================================================================
 
 ## Run all tests with nextest (fast, parallel)
-test: check install-tools
+test: check install-tools docker-cve-check
 	@CI=1 RUST_LOG=$(RUST_LOG_LEVEL) RUST_BACKTRACE=$(RUST_BACKTRACE) \
 		$(CARGO) nextest run --all-features --no-fail-fast
 	@$(CARGO) test --doc --all-features
@@ -231,6 +236,72 @@ pre-release: install-tools check docs-check test audit build-release
 	@echo "  2. Bump version in Cargo.toml (if needed)"
 	@echo "  3. Create annotated git tag: git tag -a v<VERSION>"
 	@echo "  4. Push: git push && git push --tags"
+
+# ============================================================================
+# DOCKER VERIFICATION
+# ============================================================================
+
+## Build local image + single-node + 3-node HA smoke test
+docker-verify-local: docker-verify-build
+	@docker tag $(DOCKER_LOCAL_TAG) $(COMPOSE_TAG)
+	@DLMDB_SKIP_BUILD=1 ./compose/smoke-test.sh
+	@echo "✓ Docker image verified (local)"
+
+## Pull remote image + single-node + 3-node HA smoke test
+docker-verify-remote: docker-verify-pull
+	@docker tag $(DOCKER_REMOTE_TAG) $(COMPOSE_TAG)
+	@DLMDB_SKIP_BUILD=1 ./compose/smoke-test.sh
+	@echo "✓ Docker image verified (remote)"
+
+# Internal: build local + single-node test
+docker-verify-build:
+	@docker info >/dev/null 2>&1 || { echo "WARN: Docker not available — skipping"; exit 0; }; \
+	docker build -t $(DOCKER_LOCAL_TAG) . && \
+	docker rm -f dlmdb-verify 2>/dev/null || true; \
+	docker volume rm dlmdb-verify-data 2>/dev/null || true; \
+	docker run -d --name dlmdb-verify -p 18080:8080 \
+		-e CONFIG=/etc/dlmdb/config.toml \
+		-v $(PWD)/d-lmdb-server/config.example.toml:/etc/dlmdb/config.toml:ro \
+		-v dlmdb-verify-data:/data $(DOCKER_LOCAL_TAG) && \
+	sleep 3 && \
+	curl -s -o /dev/null -w 'PUT: %{http_code}\n' -X PUT localhost:18080/kv/hello -d world && \
+	curl -s -w '\n' localhost:18080/kv/hello; \
+	docker rm -f dlmdb-verify; \
+	docker volume rm dlmdb-verify-data
+
+# Internal: pull remote + single-node test
+docker-verify-pull:
+	@docker info >/dev/null 2>&1 || { echo "WARN: Docker not available — skipping"; exit 0; }; \
+	docker pull $(DOCKER_REMOTE_TAG) && \
+	docker rm -f dlmdb-verify 2>/dev/null || true; \
+	docker volume rm dlmdb-verify-data 2>/dev/null || true; \
+	docker run -d --name dlmdb-verify -p 18080:8080 \
+		-e CONFIG=/etc/dlmdb/config.toml \
+		-v $(PWD)/d-lmdb-server/config.example.toml:/etc/dlmdb/config.toml:ro \
+		-v dlmdb-verify-data:/data $(DOCKER_REMOTE_TAG) && \
+	sleep 3 && \
+	curl -s -o /dev/null -w 'PUT: %{http_code}\n' -X PUT localhost:18080/kv/hello -d world && \
+	curl -s -w '\n' localhost:18080/kv/hello; \
+	docker rm -f dlmdb-verify; \
+	docker volume rm dlmdb-verify-data
+
+
+## Build local image + fail if Medium+ CVEs exist
+docker-cve-check: docker-verify-build
+	@docker info >/dev/null 2>&1 || { echo "WARN: Docker not available — skipping"; exit 0; }; \
+	command -v docker >/dev/null 2>&1 || { echo "docker scout CLI required"; exit 1; }; \
+	ARCH=$$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/'); \
+	OUT=$$(docker scout cves $(DOCKER_LOCAL_TAG) --platform linux/$$ARCH 2>&1); \
+	LINE=$$(echo "$$OUT" | grep 'vulnerabilities' || true); \
+	[ -n "$$LINE" ] || { echo "$$OUT"; exit 1; }; \
+	C=$$(echo "$$LINE" | grep -o '[0-9]\+C' | grep -o '[0-9]\+' || echo 0); \
+	H=$$(echo "$$LINE" | grep -o '[0-9]\+H' | grep -o '[0-9]\+' || echo 0); \
+	M=$$(echo "$$LINE" | grep -o '[0-9]\+M' | grep -o '[0-9]\+' || echo 0); \
+	echo "CVEs: $${C}C $${H}H $${M}M"; \
+	if [ "$$C" -gt 0 ] || [ "$$H" -gt 0 ] || [ "$$M" -gt 0 ]; then \
+		echo "FAIL: Medium+ vulnerabilities found"; exit 1; \
+	fi; \
+	echo "PASS"
 
 ## Default target: run full check suite
 all: check

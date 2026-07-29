@@ -23,12 +23,12 @@ RUN cargo build --release -p d-lmdb-server
 
 FROM debian:bookworm-slim AS runtime
 
-# gosu: drop from root to appuser after the entrypoint fixes up mounted-volume
-# ownership — see docker-entrypoint.sh. ca-certificates: TLS roots, needed if
-# the Raft cluster ever talks over TLS.
+# setpriv (util-linux) replaces gosu — avoids 68 Go 1.19 stdlib CVEs.
+# perl-base + tar purged: not needed at runtime, bring CVEs.
 RUN apt-get update \
     && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends gosu ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && dpkg --force-remove-essential --force-depends --purge perl-base tar \
     && rm -rf /var/lib/apt/lists/*
 
 # Fixed UID/GID (not just UID) — docker-compose bind-mounts a host directory
