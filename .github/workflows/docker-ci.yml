@@ -1,0 +1,59 @@
+name: Docker CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - "compose/**"
+      - "d-lmdb/**"
+      - "d-lmdb-server/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "**/*.rs"
+      - ".github/workflows/docker-ci.yml"
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - "compose/**"
+      - "d-lmdb/**"
+      - "d-lmdb-server/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "**/*.rs"
+      - ".github/workflows/docker-ci.yml"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CI: 1
+
+jobs:
+  docker-smoke-test:
+    name: Build and Smoke Test Docker Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image locally for smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          tags: d-lmdb-server:compose
+          load: true
+
+      - name: Run 3-node smoke test
+        run: DLMDB_SKIP_BUILD=1 ./compose/smoke-test.sh

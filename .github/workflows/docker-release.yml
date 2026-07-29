@@ -1,9 +1,14 @@
 name: Docker Release
 
-# Triggered by creating a GitHub Release, not every push to main.
 on:
   release:
-    types: [created]
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g. 0.1.1-rc1, 0.1.1)"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -12,8 +17,6 @@ env:
   IMAGE: deventlab/d-lmdb
 
 jobs:
-  # Build, smoke-test, then push by digest — per platform. arm64 runs
-  # under QEMU: verifies correctness, not real hardware timing.
   build-test-push:
     name: Build, test, push (${{ matrix.platform }})
     runs-on: ubuntu-latest
@@ -21,13 +24,16 @@ jobs:
       fail-fast: false
       matrix:
         platform: [linux/amd64, linux/arm64]
-    steps:
-      - name: Set platform tag for artifact naming
-        run: |
-          platform=${{ matrix.platform }}
-          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set platform tag for artifact naming
+        shell: bash
+        run: |
+          platform='${{ matrix.platform }}'
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -35,7 +41,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build image for this platform (local only, not pushed yet)
+      - name: Build image for this platform (local only)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -43,8 +49,24 @@ jobs:
           tags: d-lmdb-server:compose
           load: true
 
-      - name: Run 3-node smoke test against the freshly built image
+      - name: Run 3-node smoke test
         run: DLMDB_SKIP_BUILD=1 ./compose/smoke-test.sh
+
+      - name: Scan for Medium+ CVEs (fail release if found)
+        shell: bash
+        run: |
+          OUT=$(docker scout cves d-lmdb-server:compose --platform ${{ matrix.platform }} 2>&1)
+          LINE=$(echo "$OUT" | grep 'vulnerabilities' || true)
+          [ -n "$LINE" ] || { echo "$OUT"; exit 1; }
+          C=$(echo "$LINE" | grep -o '[0-9]\+C' | grep -o '[0-9]\+' || echo 0)
+          H=$(echo "$LINE" | grep -o '[0-9]\+H' | grep -o '[0-9]\+' || echo 0)
+          M=$(echo "$LINE" | grep -o '[0-9]\+M' | grep -o '[0-9]\+' || echo 0)
+          echo "CVEs: ${C}C ${H}H ${M}M"
+          if [ "$C" -gt 0 ] || [ "$H" -gt 0 ] || [ "$M" -gt 0 ]; then
+            echo "FAIL: Release blocked — Medium+ CVEs found"
+            exit 1
+          fi
+          echo "PASS"
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -52,16 +74,18 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
 
-      - name: Push tested image by digest (no rebuild)
+      - name: Push tested image by digest
         id: push
+        shell: bash
         run: |
-          TARGET="docker.io/${{ env.IMAGE }}:${{ github.sha }}"
+          TARGET="docker.io/${{ env.IMAGE }}:${{ github.sha }}-${{ matrix.platform }}"
           docker tag d-lmdb-server:compose "$TARGET"
           docker push "$TARGET"
           DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$TARGET" | grep -o 'sha256:[a-f0-9]\{64\}')
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Export digest
+        shell: bash
         run: |
           mkdir -p /tmp/digests
           DIGEST="${{ steps.push.outputs.digest }}"
@@ -75,17 +99,20 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # Only runs if every platform above succeeded.
   merge:
     name: Merge multi-platform manifest
     runs-on: ubuntu-latest
     needs: build-test-push
+
     steps:
-      - name: Strip 'v' prefix from release tag
+      - name: Resolve version
+        shell: bash
         env:
+          VERSION_INPUT: ${{ inputs.version }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          printf 'STRIPPED_VERSION=%s\n' "${RELEASE_TAG#v}" >> "$GITHUB_ENV"
+          VERSION="${VERSION_INPUT:-$RELEASE_TAG}"
+          printf 'STRIPPED_VERSION=%s\n' "${VERSION#v}" >> "$GITHUB_ENV"
 
       - name: Download digests
         uses: actions/download-artifact@v4
@@ -103,7 +130,19 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
 
+      - name: Reject if version tag already exists
+        shell: bash
+        env:
+          IMAGE: ${{ env.IMAGE }}
+        run: |
+          if docker buildx imagetools inspect "docker.io/${IMAGE}:${STRIPPED_VERSION}" >/dev/null 2>&1; then
+            echo "ERROR: ${STRIPPED_VERSION} already exists — will not overwrite"
+            exit 1
+          fi
+          echo "OK: ${STRIPPED_VERSION} is available"
+
       - name: Create and push manifest list
+        shell: bash
         working-directory: /tmp/digests
         env:
           IMAGE: ${{ env.IMAGE }}
@@ -114,6 +153,7 @@ jobs:
             $(printf 'docker.io/%s@sha256:%s ' "${IMAGE}" *)
 
       - name: Verify manifest
+        shell: bash
         env:
           IMAGE: ${{ env.IMAGE }}
         run: docker buildx imagetools inspect "docker.io/${IMAGE}:${STRIPPED_VERSION}"
