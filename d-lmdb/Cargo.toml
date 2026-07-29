@@ -11,7 +11,7 @@ rust-version = "1.89"
 
 [dependencies]
 # production: d-engine = "0.2"
-d-engine = { git = "https://github.com/DEventLab/d-engine", branch = "fix/425-leader-hint", default-features = false, features = ["server"] }
+d-engine = { git = "https://github.com/DEventLab/d-engine", branch = "main", default-features = false, features = ["server"] }
 
 heed = "0.20"
 bytes = "1"
@@ -29,7 +29,7 @@ anyhow = "1"
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }
 tracing-subscriber = "0.3"
-d-engine = { git = "https://github.com/DEventLab/d-engine", branch = "fix/425-leader-hint", default-features = false, features = ["server", "__test_support"] }
+d-engine = { git = "https://github.com/DEventLab/d-engine", branch = "main", default-features = false, features = ["server", "__test_support"] }
 
 [[example]]
 name = "single_node"
