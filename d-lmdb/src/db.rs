@@ -59,6 +59,7 @@ impl DLmdb {
         let sm_ref = Arc::clone(&state_machine);
 
         let engine = EmbeddedEngine::<LmdbStorageEngine, LmdbStateMachine>::start_custom(
+            &dlmdb_config.data_dir,
             storage_engine,
             state_machine,
             Some(path_str),
@@ -78,19 +79,19 @@ impl DLmdb {
         let raft_dir = path_str.join("raft");
         let lmdb_dir = path_str.join("lmdb");
 
-        let dlmdb_config = DLmdbConfig::new(data_path);
+        let dlmdb_config = DLmdbConfig::new(path_str);
 
-        let storage_engine = Arc::new(LmdbStorageEngine::new(raft_dir.clone())?);
+        let storage_engine = Arc::new(LmdbStorageEngine::new(raft_dir)?);
         let state_machine = Arc::new(LmdbStateMachine::new(lmdb_dir, &dlmdb_config).await?);
         let sm_ref = Arc::clone(&state_machine);
 
-        let mut raft_config = RaftNodeConfig::new()?;
-        raft_config.cluster.db_root_dir = raft_dir;
+        let raft_config = RaftNodeConfig::new()?;
 
         let engine = EmbeddedEngine::<LmdbStorageEngine, LmdbStateMachine>::start_node(
-            raft_config,
+            path_str,
             storage_engine,
             state_machine,
+            raft_config,
         )
         .await?;
 
