@@ -13,12 +13,63 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: docker-release-${{ github.event.release.tag_name || inputs.version }}
+  cancel-in-progress: false
+
 env:
   IMAGE: deventlab/d-lmdb
 
 jobs:
+  check-version:
+    name: Check version and reject duplicates
+    runs-on: ubuntu-latest
+    outputs:
+      stripped_version: ${{ steps.resolve.outputs.stripped_version }}
+
+    steps:
+      - name: Resolve version
+        id: resolve
+        shell: bash
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="${VERSION_INPUT:-$RELEASE_TAG}"
+          [ -n "$VERSION" ] || { echo "ERROR: no version resolved from input or release tag"; exit 1; }
+          echo "stripped_version=${VERSION#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
+
+      - name: Reject if version tag already exists
+        shell: bash
+        env:
+          IMAGE: ${{ env.IMAGE }}
+          STRIPPED_VERSION: ${{ steps.resolve.outputs.stripped_version }}
+        run: |
+          ERR=$(docker buildx imagetools inspect "docker.io/${IMAGE}:${STRIPPED_VERSION}" 2>&1 >/dev/null)
+          RC=$?
+          if [ $RC -eq 0 ]; then
+            echo "ERROR: ${STRIPPED_VERSION} already exists — will not overwrite"
+            exit 1
+          elif echo "$ERR" | grep -qi 'not found\|manifest unknown'; then
+            echo "OK: ${STRIPPED_VERSION} is available"
+          else
+            echo "ERROR: inspect failed for an unrelated reason:"
+            echo "$ERR"
+            exit 1
+          fi
+
   build-test-push:
     name: Build, test, push (${{ matrix.platform }})
+    needs: check-version
     runs-on: ${{ matrix.runs-on }}
     strategy:
       fail-fast: false
@@ -67,8 +118,11 @@ jobs:
         run: |
           TARGET="docker.io/${IMAGE}:${{ github.sha }}-${{ env.PLATFORM_PAIR }}"
           docker tag d-lmdb-server:compose "$TARGET"
-          docker push "$TARGET"
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$TARGET" | grep -o 'sha256:[a-f0-9]\{64\}')
+          # NOTE: assumes classic `docker push` output has exactly one `sha256:...` match
+          # (the final digest line). If Docker output format changes (e.g. containerd
+          # snapshotter) and this starts matching multiple lines, DIGEST becomes
+          # multi-line and downstream refs go invalid — check here first.
+          DIGEST=$(docker push "$TARGET" | tee /dev/stderr | grep -oE 'sha256:[a-f0-9]{64}')
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Export digest
@@ -76,6 +130,7 @@ jobs:
         run: |
           mkdir -p /tmp/digests
           DIGEST="${{ steps.push.outputs.digest }}"
+          [ -n "$DIGEST" ] || { echo "ERROR: empty digest from push step"; exit 1; }
           touch "/tmp/digests/${DIGEST#sha256:}"
 
       - name: Upload digest
@@ -89,18 +144,11 @@ jobs:
   merge:
     name: Merge multi-platform manifest
     runs-on: ubuntu-latest
-    needs: build-test-push
+    needs: [check-version, build-test-push]
+    env:
+      STRIPPED_VERSION: ${{ needs.check-version.outputs.stripped_version }}
 
     steps:
-      - name: Resolve version
-        shell: bash
-        env:
-          VERSION_INPUT: ${{ inputs.version }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          VERSION="${VERSION_INPUT:-$RELEASE_TAG}"
-          printf 'STRIPPED_VERSION=%s\n' "${VERSION#v}" >> "$GITHUB_ENV"
-
       - name: Download digests
         uses: actions/download-artifact@v4
         with:
@@ -117,28 +165,20 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
 
-      - name: Reject if version tag already exists
-        shell: bash
-        env:
-          IMAGE: ${{ env.IMAGE }}
-        run: |
-          if docker buildx imagetools inspect "docker.io/${IMAGE}:${STRIPPED_VERSION}" >/dev/null 2>&1; then
-            echo "ERROR: ${STRIPPED_VERSION} already exists — will not overwrite"
-            exit 1
-          fi
-          echo "OK: ${STRIPPED_VERSION} is available"
-
       - name: Create and push manifest list
         shell: bash
         working-directory: /tmp/digests
         env:
           IMAGE: ${{ env.IMAGE }}
         run: |
-          # shellcheck disable=SC2046  # intentional word-splitting
+          REFS=()
+          for f in *; do
+            REFS+=("docker.io/${IMAGE}@sha256:${f}")
+          done
           docker buildx imagetools create \
             -t "docker.io/${IMAGE}:${STRIPPED_VERSION}" \
             -t "docker.io/${IMAGE}:latest" \
-            $(printf 'docker.io/%s@sha256:%s ' "${IMAGE}" *)
+            "${REFS[@]}"
 
       - name: Verify manifest
         shell: bash
