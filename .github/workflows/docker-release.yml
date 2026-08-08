@@ -54,8 +54,10 @@ jobs:
           IMAGE: ${{ env.IMAGE }}
           STRIPPED_VERSION: ${{ steps.resolve.outputs.stripped_version }}
         run: |
+          set +e
           ERR=$(docker buildx imagetools inspect "docker.io/${IMAGE}:${STRIPPED_VERSION}" 2>&1 >/dev/null)
           RC=$?
+          set -e
           if [ $RC -eq 0 ]; then
             echo "ERROR: ${STRIPPED_VERSION} already exists — will not overwrite"
             exit 1
