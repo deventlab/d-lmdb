@@ -449,7 +449,7 @@ dependencies = [
 [[package]]
 name = "d-engine"
 version = "0.2.4"
-source = "git+https://github.com/DEventLab/d-engine?branch=main#ed9649cae618897c758a7e080a2d3e99afa3a5d6"
+source = "git+https://github.com/DEventLab/d-engine?branch=main#ecab3f05f3e47ebc539ccb906a3018ff81d8591f"
 dependencies = [
  "d-engine-server",
 ]
@@ -457,7 +457,7 @@ dependencies = [
 [[package]]
 name = "d-engine-core"
 version = "0.2.4"
-source = "git+https://github.com/DEventLab/d-engine?branch=main#ed9649cae618897c758a7e080a2d3e99afa3a5d6"
+source = "git+https://github.com/DEventLab/d-engine?branch=main#ecab3f05f3e47ebc539ccb906a3018ff81d8591f"
 dependencies = [
  "astral-tokio-tar",
  "async-compression",
@@ -494,7 +494,7 @@ dependencies = [
 [[package]]
 name = "d-engine-proto"
 version = "0.2.4"
-source = "git+https://github.com/DEventLab/d-engine?branch=main#ed9649cae618897c758a7e080a2d3e99afa3a5d6"
+source = "git+https://github.com/DEventLab/d-engine?branch=main#ecab3f05f3e47ebc539ccb906a3018ff81d8591f"
 dependencies = [
  "bytes",
  "prost",
@@ -508,7 +508,7 @@ dependencies = [
 [[package]]
 name = "d-engine-server"
 version = "0.2.4"
-source = "git+https://github.com/DEventLab/d-engine?branch=main#ed9649cae618897c758a7e080a2d3e99afa3a5d6"
+source = "git+https://github.com/DEventLab/d-engine?branch=main#ecab3f05f3e47ebc539ccb906a3018ff81d8591f"
 dependencies = [
  "arc-swap",
  "async-trait",

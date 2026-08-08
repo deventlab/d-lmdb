@@ -253,8 +253,27 @@ docker-verify-remote: docker-verify-pull
 	@DLMDB_SKIP_BUILD=1 ./compose/smoke-test.sh
 	@echo "✓ Docker image verified (remote)"
 
+# Internal: docker buildx + scout must be reachable, or docker-cve-check fails
+# with a misleading "unknown flag: --platform" further down. Usual cause on a
+# new machine: the active `docker context` (see `docker context ls`) isn't
+# the one Docker Desktop registers its CLI plugins against — try
+# `docker context use desktop-linux`.
+docker-preflight:
+	@docker info >/dev/null 2>&1 || { echo "WARN: Docker not available — skipping"; exit 0; }; \
+	docker buildx version >/dev/null 2>&1 || { \
+		echo "$(RED)ERROR: 'docker buildx' not available (active context: $$(docker context show 2>/dev/null)).$(NC)"; \
+		echo "  Try: docker context use desktop-linux"; \
+		echo "  Still broken? Check ~/.docker/cli-plugins/ exists and HOME/DOCKER_CONFIG point where you expect."; \
+		exit 1; \
+	}; \
+	docker scout version >/dev/null 2>&1 || { \
+		echo "$(RED)ERROR: 'docker scout' not available (active context: $$(docker context show 2>/dev/null)).$(NC)"; \
+		echo "  Same fix as buildx above — check active context / HOME / DOCKER_CONFIG."; \
+		exit 1; \
+	}
+
 # Internal: build local + single-node test
-docker-verify-build:
+docker-verify-build: docker-preflight
 	@docker info >/dev/null 2>&1 || { echo "WARN: Docker not available — skipping"; exit 0; }; \
 	docker build -t $(DOCKER_LOCAL_TAG) . && \
 	docker rm -f d-lmdb-verify 2>/dev/null || true; \
@@ -286,20 +305,22 @@ docker-verify-pull:
 	docker volume rm d-lmdb-verify-data
 
 
-## Build local image + fail if Medium+ CVEs exist
+## Build local image + fail if Medium+ CVEs exist with an available fix
 docker-cve-check: docker-verify-build
 	@docker info >/dev/null 2>&1 || { echo "WARN: Docker not available — skipping"; exit 0; }; \
 	command -v docker >/dev/null 2>&1 || { echo "docker scout CLI required"; exit 1; }; \
 	ARCH=$$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/'); \
-	OUT=$$(docker scout cves $(DOCKER_LOCAL_TAG) --platform linux/$$ARCH 2>&1); \
-	LINE=$$(echo "$$OUT" | grep 'vulnerabilities' || true); \
-	[ -n "$$LINE" ] || { echo "$$OUT"; exit 1; }; \
-	C=$$(echo "$$LINE" | grep -o '[0-9]\+C' | grep -o '[0-9]\+' || echo 0); \
-	H=$$(echo "$$LINE" | grep -o '[0-9]\+H' | grep -o '[0-9]\+' || echo 0); \
-	M=$$(echo "$$LINE" | grep -o '[0-9]\+M' | grep -o '[0-9]\+' || echo 0); \
-	echo "CVEs: $${C}C $${H}H $${M}M"; \
-	if [ "$$C" -gt 0 ] || [ "$$H" -gt 0 ] || [ "$$M" -gt 0 ]; then \
-		echo "FAIL: Medium+ vulnerabilities found"; exit 1; \
+	echo "-- unfixed (upstream has no patch yet, not gated — review quarterly) --"; \
+	if ! UNFIXED=$$(docker scout cves $(DOCKER_LOCAL_TAG) --platform linux/$$ARCH --only-unfixed --only-severity critical,high,medium 2>&1); then \
+		echo "$$UNFIXED"; echo "FAIL: docker scout cves (unfixed) exited non-zero"; exit 1; \
+	fi; \
+	echo "$$UNFIXED"; \
+	docker scout cves $(DOCKER_LOCAL_TAG) --platform linux/$$ARCH --only-fixed --only-severity critical,high,medium --exit-code; \
+	STATUS=$$?; \
+	if [ "$$STATUS" -eq 2 ]; then \
+		echo "FAIL: Medium+ vulnerabilities found with a fix available"; exit 1; \
+	elif [ "$$STATUS" -ne 0 ]; then \
+		echo "FAIL: docker scout cves exited $$STATUS (scanner failure, not a vulnerability finding)"; exit 1; \
 	fi; \
 	echo "PASS"
 

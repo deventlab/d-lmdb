@@ -15,6 +15,7 @@ use d_engine::StateMachine;
 use crate::Error;
 use crate::Result;
 use crate::config::DLmdbConfig;
+use crate::lock::DataDirLock;
 use crate::state_machine::LmdbStateMachine;
 use crate::storage_engine::LmdbStorageEngine;
 use crate::unix_now_secs;
@@ -37,6 +38,7 @@ type Inner = EmbeddedEngine<LmdbStorageEngine, LmdbStateMachine>;
 pub struct DLmdb {
     inner: Inner,
     state_machine: Arc<LmdbStateMachine>,
+    _data_dir_lock: DataDirLock,
     max_key_bytes: usize,
     max_value_bytes: usize,
 }
@@ -51,6 +53,8 @@ impl DLmdb {
 
         let dlmdb_config = DLmdbConfig::from_file(path_str)?;
 
+        let data_dir_lock = DataDirLock::acquire(&dlmdb_config.data_dir)?;
+
         let raft_dir = dlmdb_config.data_dir.join("raft");
         let lmdb_dir = dlmdb_config.data_dir.join("lmdb");
 
@@ -59,6 +63,7 @@ impl DLmdb {
         let sm_ref = Arc::clone(&state_machine);
 
         let engine = EmbeddedEngine::<LmdbStorageEngine, LmdbStateMachine>::start_custom(
+            &dlmdb_config.data_dir,
             storage_engine,
             state_machine,
             Some(path_str),
@@ -68,6 +73,7 @@ impl DLmdb {
         Ok(Self {
             inner: engine,
             state_machine: sm_ref,
+            _data_dir_lock: data_dir_lock,
             max_key_bytes: dlmdb_config.max_key_bytes,
             max_value_bytes: dlmdb_config.max_value_bytes,
         })
@@ -78,25 +84,28 @@ impl DLmdb {
         let raft_dir = path_str.join("raft");
         let lmdb_dir = path_str.join("lmdb");
 
-        let dlmdb_config = DLmdbConfig::new(data_path);
+        let dlmdb_config = DLmdbConfig::new(path_str);
 
-        let storage_engine = Arc::new(LmdbStorageEngine::new(raft_dir.clone())?);
+        let data_dir_lock = DataDirLock::acquire(path_str)?;
+
+        let storage_engine = Arc::new(LmdbStorageEngine::new(raft_dir)?);
         let state_machine = Arc::new(LmdbStateMachine::new(lmdb_dir, &dlmdb_config).await?);
         let sm_ref = Arc::clone(&state_machine);
 
-        let mut raft_config = RaftNodeConfig::new()?;
-        raft_config.cluster.db_root_dir = raft_dir;
+        let raft_config = RaftNodeConfig::new()?;
 
         let engine = EmbeddedEngine::<LmdbStorageEngine, LmdbStateMachine>::start_node(
-            raft_config,
+            path_str,
             storage_engine,
             state_machine,
+            raft_config,
         )
         .await?;
 
         Ok(Self {
             inner: engine,
             state_machine: sm_ref,
+            _data_dir_lock: data_dir_lock,
             max_key_bytes: dlmdb_config.max_key_bytes,
             max_value_bytes: dlmdb_config.max_value_bytes,
         })

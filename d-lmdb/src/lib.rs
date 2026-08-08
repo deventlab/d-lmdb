@@ -31,6 +31,7 @@
 mod config;
 mod db;
 mod error;
+mod lock;
 mod state_machine;
 mod storage_engine;
 mod time;
