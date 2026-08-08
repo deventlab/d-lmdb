@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: docker-release-${{ github.event.release.tag_name || inputs.version }}
+  group: docker-release
   cancel-in-progress: false
 
 env:
@@ -118,11 +118,13 @@ jobs:
         run: |
           TARGET="docker.io/${IMAGE}:${{ github.sha }}-${{ env.PLATFORM_PAIR }}"
           docker tag d-lmdb-server:compose "$TARGET"
-          # NOTE: assumes classic `docker push` output has exactly one `sha256:...` match
-          # (the final digest line). If Docker output format changes (e.g. containerd
-          # snapshotter) and this starts matching multiple lines, DIGEST becomes
-          # multi-line and downstream refs go invalid — check here first.
-          DIGEST=$(docker push "$TARGET" | tee /dev/stderr | grep -oE 'sha256:[a-f0-9]{64}')
+          PUSH_OUTPUT=$(docker push "$TARGET" | tee /dev/stderr)
+          mapfile -t DIGESTS < <(printf '%s\n' "$PUSH_OUTPUT" | grep -oE 'sha256:[a-f0-9]{64}')
+          if [ "${#DIGESTS[@]}" -ne 1 ]; then
+            echo "ERROR: expected exactly 1 digest from docker push output, got ${#DIGESTS[@]}"
+            exit 1
+          fi
+          DIGEST="${DIGESTS[0]}"
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Export digest
