@@ -15,6 +15,7 @@ use d_engine::StateMachine;
 use crate::Error;
 use crate::Result;
 use crate::config::DLmdbConfig;
+use crate::lock::DataDirLock;
 use crate::state_machine::LmdbStateMachine;
 use crate::storage_engine::LmdbStorageEngine;
 use crate::unix_now_secs;
@@ -37,6 +38,7 @@ type Inner = EmbeddedEngine<LmdbStorageEngine, LmdbStateMachine>;
 pub struct DLmdb {
     inner: Inner,
     state_machine: Arc<LmdbStateMachine>,
+    _data_dir_lock: DataDirLock,
     max_key_bytes: usize,
     max_value_bytes: usize,
 }
@@ -50,6 +52,8 @@ impl DLmdb {
             .ok_or_else(|| Error::Path("path is not valid UTF-8".into()))?;
 
         let dlmdb_config = DLmdbConfig::from_file(path_str)?;
+
+        let data_dir_lock = DataDirLock::acquire(&dlmdb_config.data_dir)?;
 
         let raft_dir = dlmdb_config.data_dir.join("raft");
         let lmdb_dir = dlmdb_config.data_dir.join("lmdb");
@@ -69,6 +73,7 @@ impl DLmdb {
         Ok(Self {
             inner: engine,
             state_machine: sm_ref,
+            _data_dir_lock: data_dir_lock,
             max_key_bytes: dlmdb_config.max_key_bytes,
             max_value_bytes: dlmdb_config.max_value_bytes,
         })
@@ -80,6 +85,8 @@ impl DLmdb {
         let lmdb_dir = path_str.join("lmdb");
 
         let dlmdb_config = DLmdbConfig::new(path_str);
+
+        let data_dir_lock = DataDirLock::acquire(path_str)?;
 
         let storage_engine = Arc::new(LmdbStorageEngine::new(raft_dir)?);
         let state_machine = Arc::new(LmdbStateMachine::new(lmdb_dir, &dlmdb_config).await?);
@@ -98,6 +105,7 @@ impl DLmdb {
         Ok(Self {
             inner: engine,
             state_machine: sm_ref,
+            _data_dir_lock: data_dir_lock,
             max_key_bytes: dlmdb_config.max_key_bytes,
             max_value_bytes: dlmdb_config.max_value_bytes,
         })

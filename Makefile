@@ -310,24 +310,16 @@ docker-cve-check: docker-verify-build
 	@docker info >/dev/null 2>&1 || { echo "WARN: Docker not available — skipping"; exit 0; }; \
 	command -v docker >/dev/null 2>&1 || { echo "docker scout CLI required"; exit 1; }; \
 	ARCH=$$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/'); \
-	FAILSIG='unknown flag|Usage:  docker \[OPTIONS\]'; \
 	echo "-- unfixed (upstream has no patch yet, not gated — review quarterly) --"; \
-	UNFIXED=""; \
-	for i in 1 2 3; do \
-		UNFIXED=$$(docker scout cves $(DOCKER_LOCAL_TAG) --platform linux/$$ARCH --only-unfixed --only-severity critical,high,medium 2>&1); \
-		echo "$$UNFIXED" | grep -qE "$$FAILSIG" || break; \
-		echo "docker scout flaked (attempt $$i/3), retrying..."; sleep 2; \
-	done; \
+	if ! UNFIXED=$$(docker scout cves $(DOCKER_LOCAL_TAG) --platform linux/$$ARCH --only-unfixed --only-severity critical,high,medium 2>&1); then \
+		echo "$$UNFIXED"; echo "FAIL: docker scout cves (unfixed) exited non-zero"; exit 1; \
+	fi; \
 	echo "$$UNFIXED"; \
-	OUT=""; \
-	for i in 1 2 3; do \
-		OUT=$$(docker scout cves $(DOCKER_LOCAL_TAG) --platform linux/$$ARCH --only-fixed 2>&1); \
-		echo "$$OUT" | grep -qE "$$FAILSIG" || break; \
-		echo "docker scout flaked (attempt $$i/3), retrying..."; sleep 2; \
-	done; \
-	echo "$$OUT" | grep -qE "$$FAILSIG" && { echo "$$OUT"; exit 1; }; \
+	if ! OUT=$$(docker scout cves $(DOCKER_LOCAL_TAG) --platform linux/$$ARCH --only-fixed 2>&1); then \
+		echo "$$OUT"; echo "FAIL: docker scout cves (fixed) exited non-zero"; exit 1; \
+	fi; \
 	LINE=$$(echo "$$OUT" | grep 'vulnerabilities' || true); \
-	[ -n "$$LINE" ] || { echo "$$OUT"; exit 1; }; \
+	[ -n "$$LINE" ] || { echo "$$OUT"; echo "FAIL: could not find vulnerability summary in docker scout output"; exit 1; }; \
 	C=$$(echo "$$LINE" | grep -o '[0-9]\+C' | grep -o '[0-9]\+' || echo 0); \
 	H=$$(echo "$$LINE" | grep -o '[0-9]\+H' | grep -o '[0-9]\+' || echo 0); \
 	M=$$(echo "$$LINE" | grep -o '[0-9]\+M' | grep -o '[0-9]\+' || echo 0); \

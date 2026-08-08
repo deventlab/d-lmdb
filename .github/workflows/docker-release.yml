@@ -62,8 +62,10 @@ jobs:
       - name: Push tested image by digest
         id: push
         shell: bash
+        env:
+          IMAGE: ${{ env.IMAGE }}
         run: |
-          TARGET="docker.io/${{ env.IMAGE }}:${{ github.sha }}-${{ env.PLATFORM_PAIR }}"
+          TARGET="docker.io/${IMAGE}:${{ github.sha }}-${{ env.PLATFORM_PAIR }}"
           docker tag d-lmdb-server:compose "$TARGET"
           docker push "$TARGET"
           DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$TARGET" | grep -o 'sha256:[a-f0-9]\{64\}')
