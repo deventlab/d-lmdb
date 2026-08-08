@@ -22,11 +22,12 @@ impl DataDirLock {
         std::fs::create_dir_all(dir)?;
         let lock_path = dir.join(".d-lmdb.lock");
         let file = OpenOptions::new().create(true).truncate(false).write(true).open(&lock_path)?;
-        file.try_lock().map_err(|_| {
-            Error::Path(format!(
+        file.try_lock().map_err(|e| match e {
+            std::fs::TryLockError::WouldBlock => Error::Path(format!(
                 "data_dir {} is already in use by another process",
                 dir.display()
-            ))
+            )),
+            std::fs::TryLockError::Error(io_err) => Error::Io(io_err),
         })?;
         Ok(Self { _file: file })
     }

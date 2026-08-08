@@ -315,17 +315,12 @@ docker-cve-check: docker-verify-build
 		echo "$$UNFIXED"; echo "FAIL: docker scout cves (unfixed) exited non-zero"; exit 1; \
 	fi; \
 	echo "$$UNFIXED"; \
-	if ! OUT=$$(docker scout cves $(DOCKER_LOCAL_TAG) --platform linux/$$ARCH --only-fixed 2>&1); then \
-		echo "$$OUT"; echo "FAIL: docker scout cves (fixed) exited non-zero"; exit 1; \
-	fi; \
-	LINE=$$(echo "$$OUT" | grep 'vulnerabilities' || true); \
-	[ -n "$$LINE" ] || { echo "$$OUT"; echo "FAIL: could not find vulnerability summary in docker scout output"; exit 1; }; \
-	C=$$(echo "$$LINE" | grep -o '[0-9]\+C' | grep -o '[0-9]\+' || echo 0); \
-	H=$$(echo "$$LINE" | grep -o '[0-9]\+H' | grep -o '[0-9]\+' || echo 0); \
-	M=$$(echo "$$LINE" | grep -o '[0-9]\+M' | grep -o '[0-9]\+' || echo 0); \
-	echo "Fixable CVEs: $${C}C $${H}H $${M}M"; \
-	if [ "$$C" -gt 0 ] || [ "$$H" -gt 0 ] || [ "$$M" -gt 0 ]; then \
+	docker scout cves $(DOCKER_LOCAL_TAG) --platform linux/$$ARCH --only-fixed --only-severity critical,high,medium --exit-code; \
+	STATUS=$$?; \
+	if [ "$$STATUS" -eq 2 ]; then \
 		echo "FAIL: Medium+ vulnerabilities found with a fix available"; exit 1; \
+	elif [ "$$STATUS" -ne 0 ]; then \
+		echo "FAIL: docker scout cves exited $$STATUS (scanner failure, not a vulnerability finding)"; exit 1; \
 	fi; \
 	echo "PASS"
 
