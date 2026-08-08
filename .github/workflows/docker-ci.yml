@@ -12,16 +12,7 @@ on:
       - "Cargo.lock"
       - "**/*.rs"
       - ".github/workflows/docker-ci.yml"
-  pull_request:
-    paths:
-      - "Dockerfile"
-      - "compose/**"
-      - "d-lmdb/**"
-      - "d-lmdb-server/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "**/*.rs"
-      - ".github/workflows/docker-ci.yml"
+  pull_request: {}
 
 permissions:
   contents: read
